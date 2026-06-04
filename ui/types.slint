@@ -1,0 +1,27 @@
+// SPDX-FileCopyrightText: 2026 Foundation Devices, Inc. <hello@foundation.xyz>
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+@rust-attr(derive(serde::Serialize, serde::Deserialize))
+export struct StoredCredential {
+    uuid: string,
+    label: string,
+    origin: string,
+    /// Host part of `origin` (no scheme/port). Used as a friendlier
+    /// fallback title when no `label` is set.
+    host: string,
+    username: string,
+    color: int,
+    archived: bool,
+    /// Pre-formatted human "5 minutes ago" / "Today 14:32" string. Empty
+    /// in the main-list view; only the details page populates this.
+    last-used: string,
+}
+
+@rust-attr(derive(serde::Serialize, serde::Deserialize))
+export struct ApprovalState {
+    active: bool,
+    title: string,
+    action-verb: string,
+    origin: string,
+    username: string,
+}

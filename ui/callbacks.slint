@@ -1,0 +1,88 @@
+// SPDX-FileCopyrightText: 2026 Foundation Devices, Inc. <hello@foundation.xyz>
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+import { StoredCredential, ApprovalState } from "./types.slint";
+
+export global Callbacks {
+    // -- Approval -----------------------------------------------------------
+    in-out property <ApprovalState> approval: {
+        active: false,
+        title: "",
+        action-verb: "release",
+        origin: "",
+        username: "",
+    };
+    callback approve();
+    callback reject();
+
+    // -- Credential store ---------------------------------------------------
+    in-out property <[StoredCredential]> credentials: [];
+    in-out property <int> live-count: 0;
+    in-out property <int> archived-count: 0;
+    in-out property <bool> archive-mode: false;
+
+    // Currently-editing credential (populated when navigating to edit/details).
+    in-out property <string> editing-uuid: "";
+    in-out property <string> editing-label: "";
+    in-out property <string> editing-origin: "";
+    in-out property <string> editing-username: "";
+    in-out property <string> editing-password: "";
+    in-out property <int>    editing-color: 0;
+    in-out property <bool>   editing-archived: false;
+    in-out property <string> editing-error: "";
+
+    // Status banner (kept off-UI for now; transport writes here).
+    in-out property <string> server-status: "";
+
+    // Free-text filter for the main list. The Rust side re-renders
+    // `credentials` whenever this changes via `search-changed`.
+    in-out property <string> search-text: "";
+    callback search-changed(string);
+    // Re-runs the credential filter on the Rust side. Call after toggling
+    // archive-mode so the model reflects the current view.
+    callback refresh-list();
+
+    // -- UI -> Rust ---------------------------------------------------------
+    callback save-new(string /* origin */, string /* username */, string /* password */, string /* label */, int /* color */);
+    callback edit-save(string /* uuid */, string /* label */, int /* color */, string /* username */, string /* password */);
+    callback change-color(string /* uuid */, int /* color */);
+    callback archive(string /* uuid */);
+    callback restore(string /* uuid */);
+    callback delete-forever(string /* uuid */);
+
+    // -- Bulk import --------------------------------------------------------
+    // Set by the Rust side once a CSV has been picked and parsed.
+    // import-source: human-readable source label ("Google Passwords"...)
+    // import-count: number of records pending commit
+    // import-error: non-empty if parsing or picking failed; UI shows it
+    //               instead of the confirm modal.
+    in-out property <string> import-source: "";
+    in-out property <int>    import-count: 0;
+    in-out property <string> import-error: "";
+    // Set after a successful commit so the summary modal can render.
+    in-out property <int>    import-imported: 0;
+    in-out property <int>    import-skipped: 0;
+    in-out property <int>    import-replaced: 0;
+
+    // Triggers file picker. Rust populates import-source/count/error on
+    // return and flips import-state in slint via property changes.
+    callback import-pick();
+    // User picked a duplicate-handling policy. Rust commits + persists,
+    // then sets import-imported / import-skipped / import-replaced.
+    // policy: 0 = skip, 1 = replace, 2 = keep both.
+    callback import-confirm(int);
+    // User tapped Cancel: discard the pending parsed records.
+    callback import-cancel();
+
+    // Reveal password for a stored credential. Returns "" on failure.
+    callback reveal-password(string /* uuid */) -> string;
+
+    // Generate a 24-char strong random password locally (no approval
+    // required because the user is initiating it from the on-device
+    // add/edit form). Returns the generated string.
+    pure callback generate-strong() -> string;
+
+    // Validate fields. Empty string == OK.
+    pure callback validate-label(string) -> string;
+    pure callback validate-origin(string) -> string;
+}

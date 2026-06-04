@@ -1,0 +1,216 @@
+// SPDX-FileCopyrightText: 2026 Foundation Devices, Inc. <hello@foundation.xyz>
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+import { AppHeader, Button, IconButton, TitledInput, TextSm,
+         BasePage, PageBody, ContentSection, ButtonSection, ScrollBody, Link,
+         ConfirmationModal } from "@ui/widgets.slint";
+import { Importance, Palette, Size } from "@ui/theme.slint";
+import { Callbacks } from "../../callbacks.slint";
+import { CardPageVersion, EditPageVersion } from "@ui/pages.slint";
+import { EditProps } from "./props.slint";
+import { Navigate, Animate } from "../../gen/navigate.slint";
+
+export component EditPage inherits Rectangle {
+    in property <EditProps> props;
+
+    property <string> new-label: Callbacks.editing-label;
+    property <string> new-origin: Callbacks.editing-origin;
+    property <string> new-username: Callbacks.editing-username;
+    property <string> new-password: Callbacks.editing-password;
+    property <int>    new-color: Callbacks.editing-color;
+    property <bool>   show-delete-confirm: false;
+
+    property <bool> password-has-focus: password-input.has-focus;
+    changed password-has-focus => {
+        if (password-has-focus) {
+            content-scroll.viewport-y = -180px;
+        }
+    }
+
+    init => {
+        new-label = Callbacks.editing-label;
+        new-origin = Callbacks.editing-origin;
+        new-username = Callbacks.editing-username;
+        new-password = Callbacks.editing-password;
+        new-color = Callbacks.editing-color;
+        Callbacks.editing-error = "";
+    }
+
+    function title-for-version() -> string {
+        if (props.version == EditPageVersion.add) { return "New password"; }
+        if (props.version == EditPageVersion.edit) { return "Edit password"; }
+        return "Archived password";
+    }
+
+    BasePage {
+        VerticalLayout {
+            AppHeader {
+                title: title-for-version();
+                title-color: Palette.content-primary;
+                side-padding: Size.sz6;
+
+                IconButton {
+                    icon: "chevron-left";
+                    size: Size.sz8;
+                    importance: Importance.normal;
+                    clicked => { Navigate.backward(); }
+                }
+            }
+
+            PageBody {
+                content-scroll := ScrollBody {
+                    p-x: Size.zero;
+                    p-y: Size.zero;
+
+                    ContentSection {
+                        spacing: Size.sz5;
+
+                        // Website: editable on add, read-only on edit/archive.
+                        // Origin parse error (if any) is attached HERE, not
+                        // to Label, since this is what was actually parsed.
+                        if props.version == EditPageVersion.add: TitledInput {
+                            title: "Website";
+                            placeholder: "https://example.com";
+                            text: new-origin;
+                            has-notice: Callbacks.editing-error != "";
+                            message: Callbacks.editing-error;
+                            edited(text) => {
+                                new-origin = text;
+                                if (Callbacks.editing-error != "") {
+                                    Callbacks.editing-error = "";
+                                }
+                            }
+                        }
+
+                        if props.version != EditPageVersion.add: VerticalLayout {
+                            padding-left: Size.sz4;
+                            spacing: Size.sz1;
+                            TextSm {
+                                text: "Website";
+                                color: Palette.content-tertiary;
+                            }
+                            TextSm {
+                                text: Callbacks.editing-origin;
+                                color: Palette.content-primary;
+                                wrap: char-wrap;
+                            }
+                        }
+
+                        TitledInput {
+                            title: "Label";
+                            placeholder: "GitHub";
+                            text: new-label;
+                            caps-mode: sentences;
+                            enabled: props.version != EditPageVersion.archive;
+                            edited(text) => { new-label = text; }
+                        }
+
+                        TitledInput {
+                            title: "Username";
+                            placeholder: "alice@example.com";
+                            text: new-username;
+                            enabled: props.version != EditPageVersion.archive;
+                            edited(text) => { new-username = text; }
+                        }
+
+                        password-input := TitledInput {
+                            title: "Password";
+                            placeholder: props.version == EditPageVersion.edit ? "Leave blank to keep current" : "Password";
+                            text: new-password;
+                            enabled: props.version != EditPageVersion.archive;
+                            visible: props.version != EditPageVersion.archive;
+                            edited(text) => { new-password = text; }
+                        }
+
+                        if props.version != EditPageVersion.archive: Button {
+                            icon: "";
+                            label: "Generate strong password";
+                            importance: Importance.secondary;
+                            clicked => {
+                                new-password = Callbacks.generate-strong();
+                            }
+                        }
+
+                        if password-has-focus: Rectangle {
+                            height: 250px;
+                        }
+                    }
+                }
+
+                if props.version == EditPageVersion.add: ButtonSection {
+                    Button {
+                        icon: "";
+                        label: "Save";
+                        importance: Importance.primary;
+                        clicked => {
+                            Callbacks.save-new(new-origin, new-username, new-password, new-label, new-color);
+                        }
+                    }
+                }
+
+                if props.version == EditPageVersion.edit: ButtonSection {
+                    Button {
+                        icon: "";
+                        label: "Save";
+                        importance: Importance.primary;
+                        clicked => {
+                            Callbacks.edit-save(Callbacks.editing-uuid, new-label, new-color, new-username, new-password);
+                        }
+                    }
+                    Button {
+                        icon: "archive";
+                        label: "Archive password";
+                        importance: Importance.secondary;
+                        clicked => {
+                            Callbacks.archive(Callbacks.editing-uuid);
+                            Navigate.main({ version: CardPageVersion.main }, {
+                                replace: true, animate: Animate.None
+                            });
+                        }
+                    }
+                }
+
+                if props.version == EditPageVersion.archive: ButtonSection {
+                    Button {
+                        icon: "export";
+                        label: "Restore";
+                        importance: Importance.primary;
+                        clicked => {
+                            Callbacks.restore(Callbacks.editing-uuid);
+                            Navigate.main({ version: CardPageVersion.archive }, {
+                                replace: true, animate: Animate.None
+                            });
+                        }
+                    }
+                    Button {
+                        icon: "";
+                        label: "Delete forever";
+                        importance: Importance.negative;
+                        clicked => {
+                            show-delete-confirm = true;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if show-delete-confirm: ConfirmationModal {
+        icon: "alert";
+        title: "Delete this password?";
+        text: "The password is sealed to this device and can't be recovered once removed. Archived passwords are not backed up.";
+        cancel-button-label: "Cancel";
+        confirm-button-label: "Delete forever";
+        critical: true;
+
+        cancel-clicked => { show-delete-confirm = false; }
+
+        confirm-clicked => {
+            show-delete-confirm = false;
+            Callbacks.delete-forever(Callbacks.editing-uuid);
+            Navigate.main({ version: CardPageVersion.archive }, {
+                replace: true, animate: Animate.None
+            });
+        }
+    }
+}

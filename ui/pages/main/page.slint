@@ -1,0 +1,367 @@
+// SPDX-FileCopyrightText: 2026 Foundation Devices, Inc. <hello@foundation.xyz>
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+import { Button, ButtonSection, CircleIcon, ContentSection, HeadingLg,
+         IconButton, AppHeader, LineCard, Link, TextLg, TextMd, TextSm, BasePage,
+         ShieldPage, OverlayMenu, PopupMenuItem, Editable, WrappedIcon,
+         PageBody, ScrollBody, SearchInput, Modal, ErrorModal } from "@ui/widgets.slint";
+import { CardPageVersion, EditPageVersion } from "@ui/pages.slint";
+import { Importance, Palette, Size, CardColor, Utils } from "@ui/theme.slint";
+import { Callbacks } from "../../callbacks.slint";
+import { StoredCredential } from "../../types.slint";
+import { MainProps } from "./props.slint";
+import { Navigate } from "../../gen/navigate.slint";
+
+component CredentialCard inherits Rectangle {
+    in property <StoredCredential> cred;
+    in property <CardColor> card-color: CardColor.purple;
+    in property <bool> edit-mode;
+    in property <bool> archived-view;
+    callback clicked();
+
+    height: 96px;
+    LineCard {
+        horizontal-stretch: 1;
+        height: parent.height;
+        width: 448px - (edit-mode ? 48px : 0px);
+        card-color: card-color;
+
+        HorizontalLayout {
+            padding-left: Size.sz6;
+            padding-right: Size.sz5;
+            alignment: stretch;
+
+            VerticalLayout {
+                alignment: center;
+                spacing: Size.sz0_5;
+
+                TextLg {
+                    text: cred.label != "" ? cred.label : cred.host;
+                    color: Palette.white;
+                    bold: true;
+                    wrap: no-wrap;
+                    overflow: elide;
+                }
+
+                TextSm {
+                    text: cred.username;
+                    color: Palette.white;
+                    wrap: no-wrap;
+                    overflow: elide;
+                }
+            }
+
+            VerticalLayout {
+                alignment: center;
+                CircleIcon {
+                    icon: "lock";
+                    line-color: card-color;
+                }
+            }
+        }
+    }
+
+    TouchArea {
+        clicked => { clicked(); }
+    }
+}
+
+export component MainPage inherits Rectangle {
+    in property <MainProps> props;
+    private property <bool> is-menu-open: false;
+    private property <bool> edit-mode: false;
+    private property <bool> archive-view: props.version == CardPageVersion.archive;
+
+    function go-add() {
+        Callbacks.editing-uuid = "";
+        Callbacks.editing-label = "";
+        Callbacks.editing-origin = "";
+        Callbacks.editing-username = "";
+        Callbacks.editing-password = "";
+        Callbacks.editing-color = 0;
+        Callbacks.editing-archived = false;
+        Callbacks.editing-error = "";
+        Navigate.edit({ version: EditPageVersion.add }, { });
+    }
+
+    function start-editing(entry: StoredCredential, version: EditPageVersion) {
+        Callbacks.editing-uuid = entry.uuid;
+        Callbacks.editing-label = entry.label;
+        Callbacks.editing-origin = entry.origin;
+        Callbacks.editing-username = entry.username;
+        Callbacks.editing-password = "";
+        Callbacks.editing-color = entry.color;
+        Callbacks.editing-archived = entry.archived;
+        Callbacks.editing-error = "";
+        Navigate.edit({ version: version }, { });
+    }
+
+    function open-details(entry: StoredCredential) {
+        Callbacks.editing-uuid = entry.uuid;
+        Callbacks.editing-label = entry.label;
+        Callbacks.editing-origin = entry.origin;
+        Callbacks.editing-username = entry.username;
+        Callbacks.editing-password = "";
+        Callbacks.editing-color = entry.color;
+        Callbacks.editing-archived = entry.archived;
+        Callbacks.editing-error = "";
+        Navigate.details({ });
+    }
+
+    // ---- Empty state (no live AND no search query) ----------------------
+    if !archive-view && Callbacks.live-count == 0 && Callbacks.search-text == "": ShieldPage {
+        ContentSection {
+            HorizontalLayout {
+                alignment: center;
+                WrappedIcon {
+                    outer-icon: "jumbo-circle";
+                    inner-icon: "lock";
+                }
+            }
+
+            HeadingLg {
+                vertical-stretch: 0;
+                text: "Save your first password";
+                horizontal-alignment: center;
+            }
+
+            TextMd {
+                text: "Add one from any website with the browser extension, or create one here.";
+                color: Palette.content-secondary;
+                horizontal-alignment: center;
+                wrap: word-wrap;
+            }
+        }
+
+        ButtonSection {
+            Button {
+                icon: "";
+                label: "New password";
+                importance: primary;
+                clicked => { go-add(); }
+            }
+        }
+    }
+
+    // ---- Populated main view OR archive view ----------------------------
+    if archive-view || Callbacks.live-count > 0 || Callbacks.search-text != "": BasePage {
+        VerticalLayout {
+            AppHeader {
+                title: archive-view ? "Archived passwords" : "Passwords";
+                side-padding: Size.sz6;
+
+                if archive-view: IconButton {
+                    icon: "chevron-left";
+                    size: Size.sz8;
+                    importance: Importance.normal;
+                    clicked => {
+                        Callbacks.archive-mode = false;
+                        Callbacks.refresh-list();
+                        Navigate.backward();
+                    }
+                }
+
+                if !archive-view: Rectangle { }
+
+                if !archive-view && !edit-mode: IconButton {
+                    icon: "ellipsis";
+                    size: Size.sz8;
+                    importance: Importance.normal;
+                    clicked => { is-menu-open = !is-menu-open; }
+                }
+
+                if !archive-view && edit-mode: VerticalLayout {
+                    alignment: center;
+                    Link {
+                        label: "Done";
+                        touch-factor: 1.5;
+                        importance: Importance.normal;
+                        clicked => { edit-mode = false; }
+                    }
+                }
+            }
+
+            PageBody {
+                p-x: Size.sz4;
+                p-y: Size.sz4;
+                ScrollBody {
+                    p-x: Size.zero;
+                    p-y: Size.zero;
+                    ContentSection {
+                    spacing: Size.sz6;
+
+                    if !archive-view: SearchInput {
+                        text: Callbacks.search-text;
+                        edited(text) => {
+                            Callbacks.search-text = text;
+                            Callbacks.search-changed(text);
+                        }
+                    }
+
+                    for entry[index] in Callbacks.credentials: Editable {
+                        edit-mode: edit-mode && !archive-view;
+                        drag-and-drop: false;
+
+                        edit => {
+                            start-editing(entry, archive-view ? EditPageVersion.archive : EditPageVersion.edit);
+                        }
+
+                        CredentialCard {
+                            cred: entry;
+                            card-color: archive-view ? CardColor.dark-grey : Utils.index-to-card-color(entry.color);
+                            edit-mode: edit-mode && !archive-view;
+                            archived-view: archive-view;
+
+                            clicked => {
+                                if (archive-view) {
+                                    start-editing(entry, EditPageVersion.archive);
+                                } else if (edit-mode) {
+                                    start-editing(entry, EditPageVersion.edit);
+                                } else {
+                                    open-details(entry);
+                                }
+                            }
+                        }
+                    }
+
+                    if !archive-view && Callbacks.credentials.length == 0 && Callbacks.search-text != "": HorizontalLayout {
+                        alignment: center;
+                        padding-top: Size.sz8;
+                        TextSm {
+                            text: "No matches.";
+                            color: Palette.content-tertiary;
+                        }
+                    }
+
+                    if archive-view && Callbacks.archived-count == 0: HorizontalLayout {
+                        alignment: center;
+                        padding-top: Size.sz8;
+                        TextSm {
+                            text: "No archived passwords.";
+                            color: Palette.content-tertiary;
+                        }
+                    }
+                    }
+                }
+
+                ButtonSection {
+                    if !archive-view: Button {
+                        icon: "";
+                        label: "New password";
+                        importance: primary;
+                        clicked => { go-add(); }
+                    }
+                }
+            }
+        }
+    }
+
+    // ---- Ellipsis menu --------------------------------------------------
+    if is-menu-open: OverlayMenu {
+        PopupMenuItem {
+            label: "Edit";
+            icon: "edit";
+            first: true;
+            clicked => {
+                is-menu-open = false;
+                edit-mode = true;
+            }
+        }
+
+        PopupMenuItem {
+            label: "Import passwords";
+            icon: "export";
+            clicked => {
+                is-menu-open = false;
+                Callbacks.import-source = "";
+                Callbacks.import-count = 0;
+                Callbacks.import-error = "";
+                Callbacks.import-imported = 0;
+                Callbacks.import-skipped = 0;
+                Callbacks.import-pick();
+            }
+        }
+
+        PopupMenuItem {
+            label: "Archive";
+            icon: "archive";
+            last: true;
+            clicked => {
+                is-menu-open = false;
+                Callbacks.archive-mode = true;
+                Callbacks.refresh-list();
+                Navigate.main({ version: CardPageVersion.archive }, { });
+            }
+        }
+
+        touched-off => { is-menu-open = false; }
+    }
+
+    // ---- Import flow modals --------------------------------------------
+    // 1. Error: parsing or picking failed.
+    if Callbacks.import-error != "": ErrorModal {
+        icon: "alert";
+        title: "Import failed";
+        text: Callbacks.import-error;
+        confirm-button-label: "Dismiss";
+        confirm-clicked => {
+            Callbacks.import-error = "";
+        }
+    }
+
+    // 2. Policy chooser: parsed N records from <source>. User picks how
+    //    to handle duplicates by tapping one of three buttons.
+    if Callbacks.import-error == "" && Callbacks.import-count > 0 && Callbacks.import-imported + Callbacks.import-skipped + Callbacks.import-replaced == 0: Modal {
+        icon: "import";
+        icon-color: Palette.content-brand;
+        title: "Import Passwords?";
+        text: Callbacks.import-source != ""
+            ? "Detected " + Callbacks.import-count + " entries from " + Callbacks.import-source + ".\n\nIf a credential for the same site and username already exists:"
+            : "Detected " + Callbacks.import-count + " entries.\n\nIf a credential for the same site and username already exists:";
+
+        Button {
+            icon: "";
+            label: "Skip duplicates";
+            importance: Importance.primary;
+            clicked => { Callbacks.import-confirm(0); }
+        }
+        Button {
+            icon: "";
+            label: "Replace existing";
+            importance: Importance.secondary;
+            clicked => { Callbacks.import-confirm(1); }
+        }
+        Button {
+            icon: "";
+            label: "Keep both";
+            importance: Importance.secondary;
+            clicked => { Callbacks.import-confirm(2); }
+        }
+        Button {
+            icon: "";
+            label: "Cancel";
+            importance: Importance.tertiary;
+            clicked => {
+                Callbacks.import-count = 0;
+                Callbacks.import-source = "";
+                Callbacks.import-cancel();
+            }
+        }
+    }
+
+    // 3. Summary: shown after import-confirm sets imported/skipped/replaced.
+    if Callbacks.import-error == "" && Callbacks.import-imported + Callbacks.import-skipped + Callbacks.import-replaced > 0: ErrorModal {
+        icon: "check";
+        icon-color: Palette.content-positive;
+        title: "Import complete";
+        text: "Imported " + Callbacks.import-imported + ", replaced " + Callbacks.import-replaced + ", skipped " + Callbacks.import-skipped + ".";
+        confirm-button-label: "OK";
+        confirm-clicked => {
+            Callbacks.import-imported = 0;
+            Callbacks.import-skipped = 0;
+            Callbacks.import-replaced = 0;
+            Callbacks.import-count = 0;
+            Callbacks.import-source = "";
+        }
+    }
+}

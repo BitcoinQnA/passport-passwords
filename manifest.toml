@@ -1,0 +1,28 @@
+# SPDX-FileCopyrightText: 2026 Foundation Devices, Inc. <hello@foundation.xyz>
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+appId = "0x50617373776f72647300000000000000"
+
+[appName]
+en = "Passwords"
+
+[permissions]
+template = ["gui-app", "fs-generic"]
+"os/security" = ["GetAppSeed"]
+"os/fs" = [
+    "GetAirlockReadAccess",
+    "GetUserReadAccess",
+    "GetUsbReadAccess",
+]
+"os/usbdev" = [
+    "RegisterCapability",
+    "RegisterSetupResponder",
+    "RegisterInterface",
+    "NumInterfaces",
+    "ReadEndpoint",
+    "WriteEndpoint",
+    "SetEndpointStalled",
+    "IsDeviceEmulationEnabled",
+    "WaitForConnection",
+    "ResetController",
+]

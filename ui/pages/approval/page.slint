@@ -1,0 +1,68 @@
+// SPDX-FileCopyrightText: 2026 Foundation Devices, Inc. <hello@foundation.xyz>
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+import { Palette, Size, Importance } from "@ui/theme.slint";
+import {
+    AppHeader, BasePage, PageBody, ContentSection, ButtonSection, Button,
+    SlideToButton, HeadingMd, TextMd, TextSm,
+} from "@ui/widgets.slint";
+import { Callbacks } from "../../callbacks.slint";
+import { ApprovalProps } from "./props.slint";
+
+export component ApprovalPage inherits BasePage {
+    in property <ApprovalProps> props;
+
+    VerticalLayout {
+        AppHeader {
+            title: Callbacks.approval.title;
+            side-padding: Size.sz8;
+        }
+
+        PageBody {
+            ContentSection {
+                spacing: Size.sz4;
+
+                VerticalLayout {
+                    spacing: Size.sz1;
+                    TextSm {
+                        text: "Website";
+                        color: Palette.content-tertiary;
+                    }
+                    HeadingMd {
+                        text: Callbacks.approval.origin;
+                    }
+                }
+
+                VerticalLayout {
+                    spacing: Size.sz1;
+                    TextSm {
+                        text: "Username";
+                        color: Palette.content-tertiary;
+                    }
+                    TextMd {
+                        text: Callbacks.approval.username;
+                        color: Palette.content-primary;
+                    }
+                }
+            }
+
+            ButtonSection {
+                SlideToButton {
+                    label: "Slide to " + Callbacks.approval.action-verb;
+                    info-label: Callbacks.approval.action-verb + " " + Callbacks.approval.origin;
+                    activated-label: Callbacks.approval.action-verb;
+                    activated(id) => {
+                        Callbacks.approve();
+                    }
+                }
+                Button {
+                    label: "Reject";
+                    importance: Importance.normal;
+                    clicked => {
+                        Callbacks.reject();
+                    }
+                }
+            }
+        }
+    }
+}

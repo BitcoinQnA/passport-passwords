@@ -1,0 +1,50 @@
+# SPDX-FileCopyrightText: 2026 Foundation Devices, Inc. <hello@foundation.xyz>
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+# Passwords logic crates — vendored into this POC folder so KeyOS-passwords is
+# self-contained (no external sibling repo needed to build). Its own workspace,
+# excluded from the KeyOS workspace; the app path-depends into it.
+[workspace]
+resolver = "2"
+members = [
+    "vaults-bridge-core",
+    "vaults-bridge-protocol",
+    "vaults-bridge-keystore",
+    "vaults-bridge-import",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "GPL-3.0-or-later"
+rust-version = "1.75"
+
+[workspace.dependencies]
+# Crypto
+aes-gcm = { version = "0.10", default-features = false, features = ["alloc", "aes"] }
+hkdf = { version = "0.12", default-features = false }
+sha2 = { version = "0.10", default-features = false }
+hmac = { version = "0.12", default-features = false }
+x25519-dalek = { version = "2", default-features = false, features = ["alloc", "static_secrets"] }
+rand_core = { version = "0.6", default-features = false }
+getrandom = "0.2"
+zeroize = { version = "1.7", features = ["derive"] }
+
+# Encoding / serialisation
+serde = { version = "1", default-features = false, features = ["derive", "alloc"] }
+serde_json = { version = "1", default-features = false, features = ["alloc"] }
+hex = { version = "0.4", default-features = false, features = ["alloc"] }
+uuid = { version = "1", default-features = false, features = ["v4", "serde"] }
+
+# Errors / utilities
+thiserror = "1"
+url = "2"
+
+# Cross-target async helpers used by the engine
+async-trait = "0.1"
+
+# Internal (relative to this folder)
+vaults-bridge-core = { path = "vaults-bridge-core" }
+vaults-bridge-protocol = { path = "vaults-bridge-protocol" }
+vaults-bridge-keystore = { path = "vaults-bridge-keystore" }
+vaults-bridge-import = { path = "vaults-bridge-import" }

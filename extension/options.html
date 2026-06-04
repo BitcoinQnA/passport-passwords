@@ -1,0 +1,73 @@
+<!--
+SPDX-FileCopyrightText: 2026 Foundation Devices, Inc. <hello@foundation.xyz>
+SPDX-License-Identifier: GPL-3.0-or-later
+-->
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Passwords - Settings</title>
+    <link rel="stylesheet" href="options.css" />
+  </head>
+  <body>
+    <main>
+      <header>
+        <div class="brand">
+          <div class="logo" aria-hidden="true">
+            <svg viewBox="0 0 24 24" width="22" height="22">
+              <path
+                fill="currentColor"
+                d="M12 2a5 5 0 0 0-5 5v3H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8a2 2 0 0 0-2-2h-1V7a5 5 0 0 0-5-5Zm-3 8V7a3 3 0 1 1 6 0v3H9Zm3 4a1.5 1.5 0 0 1 .75 2.8V19a.75.75 0 0 1-1.5 0v-2.2A1.5 1.5 0 0 1 12 14Z"
+              />
+            </svg>
+          </div>
+          <h1>Passwords</h1>
+        </div>
+        <p class="subtitle">Settings for the Passport Prime browser extension.</p>
+      </header>
+
+      <section class="card">
+        <div class="card-head">
+          <h2>Device</h2>
+          <p class="muted">Connect Passport Prime once to give the extension WebUSB access. Reconnect if you replug the device.</p>
+        </div>
+        <div class="card-row">
+          <div class="status-block">
+            <span id="pair-dot" class="dot"></span>
+            <div>
+              <div class="label">Connection status</div>
+              <div id="pair-status" class="value">Checking…</div>
+            </div>
+          </div>
+          <div class="actions">
+            <button id="pair" class="primary">Connect Passport Prime</button>
+            <button id="forget" class="secondary">Forget device</button>
+          </div>
+        </div>
+      </section>
+
+      <section class="card">
+        <div class="card-head">
+          <h2>Transport</h2>
+          <p class="muted">Production talks to the device over WebUSB. Simulator mode points the extension at a hosted-mode WebSocket for development.</p>
+        </div>
+        <label class="card-row toggle-row">
+          <span>
+            <span class="label">Simulator mode</span>
+            <span class="muted small">Use a local WebSocket (<code>ws://127.0.0.1:9876</code>) instead of WebUSB.</span>
+          </span>
+          <input type="checkbox" id="sim-mode" />
+        </label>
+        <div class="card-row">
+          <span>
+            <span class="label">WebSocket URL</span>
+            <span class="muted small">Only used when simulator mode is on.</span>
+          </span>
+          <input type="text" id="ws-url" />
+        </div>
+      </section>
+    </main>
+
+    <script src="options.js" type="module"></script>
+  </body>
+</html>
