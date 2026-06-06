@@ -81,7 +81,8 @@ export global Callbacks {
 
     callback backup-export(string /* passphrase */);
     callback backup-restore-pick(string /* passphrase */);
-    callback backup-restore-confirm();
+    // policy: 0 = skip, 1 = replace, 2 = keep both.
+    callback backup-restore-confirm(int);
     callback backup-cancel();
 
     // Reveal password for a stored credential. Returns "" on failure.

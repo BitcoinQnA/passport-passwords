@@ -16,8 +16,8 @@ Vaults Bridge has a portable encrypted backup flow:
 - The KeyOS UI exposes export and restore from the main menu. Export asks for a
   passphrase plus confirmation, then writes `passport-passwords-backup.vbpw` to
   a selected directory. Restore asks for the passphrase, reads a selected
-  `.vbpw`/`.json` backup, shows the number of passwords found, and requires a
-  final confirmation before replacing the current vault.
+  `.vbpw`/`.json` backup, shows the number of passwords found, and asks how to
+  handle matching site+username records before changing the current vault.
 
 ## Product Policy
 
@@ -38,8 +38,8 @@ The public UI now exposes:
 - Restore encrypted backup from Airlock or USB.
 - Passphrase entry and confirmation on export.
 - Passphrase entry on restore.
-- A summary screen before restore showing record count.
+- A restore policy screen with Skip duplicates, Replace existing, and Keep both.
 
-Current restore semantics are full-vault replacement. A future merge restore can
-reuse the same decrypted-record staging path and add a conflict policy screen
-before commit.
+Restore preserves native backup metadata such as notes, color, archive state,
+and timestamps. `Keep both` assigns a fresh record id and marks the restored
+copy's label with `(restored)` when it conflicts with an existing login.

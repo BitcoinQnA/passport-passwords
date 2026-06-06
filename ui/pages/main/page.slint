@@ -442,24 +442,36 @@ export component MainPage inherits Rectangle {
         icon: "alert";
         icon-color: Palette.content-negative;
         title: "Restore backup?";
-        text: "This backup contains " + Callbacks.backup-restore-count + " passwords. Restoring replaces the passwords currently on this device.";
+        text: "This backup contains " + Callbacks.backup-restore-count + " passwords.\n\nIf a credential for the same site and username already exists:";
 
         Button {
             icon: "";
-            label: "Cancel";
-            importance: Importance.secondary;
-            clicked => {
-                Callbacks.backup-restore-count = 0;
-                Callbacks.backup-cancel();
-            }
+            label: "Skip duplicates";
+            importance: Importance.primary;
+            clicked => { Callbacks.backup-restore-confirm(0); }
         }
 
         Button {
             icon: "";
-            label: "Restore backup";
-            importance: Importance.negative;
+            label: "Replace existing";
+            importance: Importance.secondary;
+            clicked => { Callbacks.backup-restore-confirm(1); }
+        }
+
+        Button {
+            icon: "";
+            label: "Keep both";
+            importance: Importance.secondary;
+            clicked => { Callbacks.backup-restore-confirm(2); }
+        }
+
+        Button {
+            icon: "";
+            label: "Cancel";
+            importance: Importance.tertiary;
             clicked => {
-                Callbacks.backup-restore-confirm();
+                Callbacks.backup-restore-count = 0;
+                Callbacks.backup-cancel();
             }
         }
     }

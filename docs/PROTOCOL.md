@@ -119,8 +119,8 @@ vault. Backup files are JSON envelopes containing a PBKDF2-HMAC-SHA256
 salt/iteration count and an AES-256-GCM ciphertext over the credential records.
 The backup passphrase is independent of the device seed, so a backup can restore
 to replacement hardware if the user kept the passphrase. The KeyOS UI stages
-restore records, shows the count, and replaces the current vault only after
-final user confirmation.
+restore records, shows the count, and lets the user skip duplicates, replace
+existing records, or keep both before commit.
 
 ### Error codes
 

@@ -202,6 +202,55 @@ impl Keystore {
         self.records = records;
     }
 
+    /// Merge native backup records into this open keystore with the same
+    /// conflict choices used by CSV import, but preserving native metadata
+    /// (notes, colors, archive state, timestamps) from the backup records.
+    pub fn restore_many(
+        &mut self,
+        records: Vec<CredentialRecord>,
+        policy: ImportPolicy,
+    ) -> ImportSummary {
+        let mut imported = 0usize;
+        let mut skipped = 0usize;
+        let mut replaced = 0usize;
+
+        for mut incoming in records {
+            let pos = self
+                .records
+                .iter()
+                .position(|r| r.origin == incoming.origin && r.username == incoming.username);
+            match (pos, policy) {
+                (Some(_), ImportPolicy::Skip) => {
+                    skipped += 1;
+                }
+                (Some(idx), ImportPolicy::Replace) => {
+                    // Keep the existing row id stable for the UI, but restore
+                    // all user-facing/native fields from the backup.
+                    incoming.id = self.records[idx].id;
+                    self.records[idx] = incoming;
+                    replaced += 1;
+                }
+                (Some(_), ImportPolicy::KeepBoth) => {
+                    incoming.id = self.unique_record_id(incoming.id);
+                    incoming.label = restored_label(&incoming.label);
+                    self.records.push(incoming);
+                    imported += 1;
+                }
+                (None, _) => {
+                    incoming.id = self.unique_record_id(incoming.id);
+                    self.records.push(incoming);
+                    imported += 1;
+                }
+            }
+        }
+
+        ImportSummary {
+            imported,
+            skipped,
+            replaced,
+        }
+    }
+
     pub fn records(&self) -> &[CredentialRecord] {
         &self.records
     }
@@ -351,6 +400,18 @@ impl Keystore {
     pub fn find_by_origin_records(&self, origin: &str) -> Vec<&CredentialRecord> {
         self.records.iter().filter(|r| r.origin == origin).collect()
     }
+
+    fn unique_record_id(&self, preferred: Uuid) -> Uuid {
+        if !self.records.iter().any(|r| r.id == preferred) {
+            return preferred;
+        }
+        loop {
+            let id = Uuid::new_v4();
+            if !self.records.iter().any(|r| r.id == id) {
+                return id;
+            }
+        }
+    }
 }
 
 impl CredentialStore for Keystore {
@@ -492,6 +553,14 @@ fn hmac_sha256(key: &[u8], data: &[u8]) -> Result<[u8; 32], KeystoreError> {
     let mut out = [0u8; 32];
     out.copy_from_slice(&bytes);
     Ok(out)
+}
+
+fn restored_label(label: &str) -> String {
+    if label.is_empty() {
+        String::from("(restored)")
+    } else {
+        format!("{label} (restored)")
+    }
 }
 
 fn seal(key: &[u8; 32], plaintext: &[u8]) -> Result<Vec<u8>, KeystoreError> {
@@ -697,5 +766,62 @@ mod tests {
         let resealed = current.seal().unwrap();
         assert!(Keystore::open(b"current-master", &resealed).is_ok());
         assert!(Keystore::open(b"old-master", &resealed).is_err());
+    }
+
+    #[test]
+    fn restore_many_skips_replaces_or_keeps_conflicts() {
+        let mut existing = CredentialRecord::new(
+            "https://example.com".into(),
+            "alice".into(),
+            "old-password".into(),
+        );
+        existing.label = "Existing".into();
+        let existing_id = existing.id;
+
+        let mut restored = CredentialRecord::new(
+            "https://example.com".into(),
+            "alice".into(),
+            "restored-password".into(),
+        );
+        restored.label = "Backup".into();
+        restored.color = 4;
+        restored.archived = true;
+        restored.notes = Some("native metadata".into());
+        restored.created_at = 123;
+        restored.last_used_at = 456;
+
+        let mut skipped = Keystore::new(b"current-master");
+        skipped.add(existing.clone());
+        let summary = skipped.restore_many(vec![restored.clone()], ImportPolicy::Skip);
+        assert_eq!(summary.skipped, 1);
+        assert_eq!(skipped.records().len(), 1);
+        assert_eq!(skipped.records()[0].password, "old-password");
+
+        let mut replaced = Keystore::new(b"current-master");
+        replaced.add(existing.clone());
+        let summary = replaced.restore_many(vec![restored.clone()], ImportPolicy::Replace);
+        assert_eq!(summary.replaced, 1);
+        assert_eq!(replaced.records().len(), 1);
+        assert_eq!(replaced.records()[0].id, existing_id);
+        assert_eq!(replaced.records()[0].password, "restored-password");
+        assert_eq!(replaced.records()[0].label, "Backup");
+        assert_eq!(replaced.records()[0].color, 4);
+        assert!(replaced.records()[0].archived);
+        assert_eq!(
+            replaced.records()[0].notes.as_deref(),
+            Some("native metadata")
+        );
+        assert_eq!(replaced.records()[0].created_at, 123);
+        assert_eq!(replaced.records()[0].last_used_at, 456);
+
+        let mut kept = Keystore::new(b"current-master");
+        kept.add(existing);
+        let summary = kept.restore_many(vec![restored], ImportPolicy::KeepBoth);
+        assert_eq!(summary.imported, 1);
+        assert_eq!(kept.records().len(), 2);
+        assert_eq!(kept.records()[0].password, "old-password");
+        assert_eq!(kept.records()[1].password, "restored-password");
+        assert_eq!(kept.records()[1].label, "Backup (restored)");
+        assert_ne!(kept.records()[0].id, kept.records()[1].id);
     }
 }

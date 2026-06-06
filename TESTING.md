@@ -99,8 +99,8 @@ Both tracks use the same extension.
 - Leaving an approval pending returns `timeout` after the approval window.
 - Exporting an encrypted backup asks for a passphrase twice and writes a
   `.vbpw` file to the selected directory. Restoring asks for the passphrase,
-  shows the decrypted record count, and only replaces the vault after final
-  confirmation.
+  shows the decrypted record count, and offers duplicate handling: skip,
+  replace, or keep both.
 
 ## Notes
 

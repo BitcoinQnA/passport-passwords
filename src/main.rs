@@ -416,36 +416,42 @@ fn app_main(_cx: AppContext, ui: AppWindow) {
         let store = store.clone();
         let state = state.clone();
         let weak = ui.as_weak();
-        ui.global::<Callbacks>().on_backup_restore_confirm(move || {
-            let Some(records) = pending_restore.lock().unwrap().take() else {
-                return;
-            };
-            let count = records.len();
-            {
-                let mut ks = keystore.lock().unwrap();
-                let snapshot = ks.snapshot();
-                ks.replace_records(records);
-                if let Err(e) = persist_keystore(&ks, &store) {
-                    log::warn!("backup restore persist failed: {e}");
-                    ks.restore_snapshot(snapshot);
-                    if let Some(ui) = weak.upgrade() {
-                        let cb = ui.global::<Callbacks>();
-                        cb.set_backup_restore_count(0);
-                        cb.set_backup_error("Backup could not be saved. Try again.".into());
-                    }
+        ui.global::<Callbacks>()
+            .on_backup_restore_confirm(move |policy: i32| {
+                let policy = import_flow::policy_from_int(policy);
+                let Some(records) = pending_restore.lock().unwrap().take() else {
                     return;
+                };
+                let summary = {
+                    let mut ks = keystore.lock().unwrap();
+                    let snapshot = ks.snapshot();
+                    let summary = ks.restore_many(records, policy);
+                    if summary.imported > 0 || summary.replaced > 0 {
+                        if let Err(e) = persist_keystore(&ks, &store) {
+                            log::warn!("backup restore persist failed: {e}");
+                            ks.restore_snapshot(snapshot);
+                            if let Some(ui) = weak.upgrade() {
+                                let cb = ui.global::<Callbacks>();
+                                cb.set_backup_restore_count(0);
+                                cb.set_backup_error("Backup could not be saved. Try again.".into());
+                            }
+                            return;
+                        }
+                    }
+                    summary
+                };
+                state.lock().unwrap().refresh_credentials();
+                if let Some(ui) = weak.upgrade() {
+                    ui.global::<Callbacks>().set_backup_restore_count(0);
+                    backup_flow::set_success(
+                        &weak,
+                        &format!(
+                            "Added {}, replaced {}, skipped {} from encrypted backup.",
+                            summary.imported, summary.replaced, summary.skipped
+                        ),
+                    );
                 }
-            }
-            state.lock().unwrap().refresh_credentials();
-            if let Some(ui) = weak.upgrade() {
-                let cb = ui.global::<Callbacks>();
-                cb.set_backup_restore_count(0);
-                backup_flow::set_success(
-                    &weak,
-                    &format!("Restored {count} passwords from encrypted backup."),
-                );
-            }
-        });
+            });
     }
     {
         let pending_restore = pending_restore.clone();
