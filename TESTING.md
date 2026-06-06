@@ -34,13 +34,14 @@ Both tracks use the same extension.
    **Load unpacked** → select `extension/`.
 
 3. **Switch the extension to simulator mode.** Open the extension's **Settings**
-   (options) page and enable **Simulator mode** (WebSocket). It connects to
-   `ws://127.0.0.1:9876`.
+   (options) page, enable **Developer mode**, then enable **Simulator mode**
+   (WebSocket). It connects to `ws://127.0.0.1:9876`.
 
-4. **Trigger a fill.** Visit a login page whose origin matches the credential you
-   added. The extension offers to fill; on `release_credential` the **approval
-   screen appears in the simulator** — approve it, and the form fills with the
-   released username/password.
+4. **Trigger a fill.** Visit a login page whose exact origin matches the
+   credential you added. The extension offers matching saved logins; choose one
+   if there are multiple accounts. On `release_credential` the **approval screen
+   appears in the simulator** — approve it, and the form fills with the released
+   username/password.
 
 ---
 
@@ -75,24 +76,31 @@ Both tracks use the same extension.
    reloading the extension.
 
 5. **Fill a real login form.** Visit the matching site (the demo gate is
-   `https://github.com/login`). The extension offers to fill; approving the
-   release **on Passport** returns the credential — with the password sealed
-   under the ECDH session key — and the form fills.
+   `https://github.com/login`). The extension offers matching saved logins;
+   approving the selected release **on Passport** returns the credential — with
+   the password sealed under the ECDH session key — and the form fills.
 
 ---
 
 ## What "pass" looks like
 
-- The extension only offers to fill on origins the device actually has a
-  credential for (`list_origins`).
+- The extension only offers to fill on exact origins the device actually has a
+  credential for (`list_credentials`).
+- Multiple saved logins for one origin require an explicit account choice; the
+  host should not silently choose the first credential.
 - A `release_credential` request **always** raises an approval on the device;
   rejecting it returns an error to the extension and releases nothing.
 - The released password is never sent in clear: it travels sealed under the
   AES-256-GCM session key and is decrypted in the browser with WebCrypto.
 - A cross-origin iframe requesting a credential for the top frame's origin is
-  **rejected** — the background worker authoritatively uses `sender.tab.url`, not
-  the content script's claim.
+  **rejected** — the background worker only accepts top-frame content-script
+  messages and derives the USB origin from `sender.tab.url`.
 - Replaying a captured USB exchange is rejected (per-request nonce).
+- Leaving an approval pending returns `timeout` after the approval window.
+- Exporting an encrypted backup asks for a passphrase twice and writes a
+  `.vbpw` file to the selected directory. Restoring asks for the passphrase,
+  shows the decrypted record count, and only replaces the vault after final
+  confirmation.
 
 ## Notes
 

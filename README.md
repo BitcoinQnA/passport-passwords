@@ -70,8 +70,9 @@ browser, so a host-side attacker watching USB traffic can't read it.
 - **Origin-bound, host-verified.** Each request carries a strict origin (scheme +
   host + explicit non-default port, no path/query). The extension's background
   worker derives the requesting tab's origin authoritatively from `sender.tab.url`
-  and refuses any request where the content script's claimed origin disagrees —
-  a cross-origin iframe cannot exfiltrate a credential.
+  for content-script requests, or from the active tab for popup requests, rather
+  than trusting page-provided input. Public builds use exact-origin matching —
+  subdomains do not silently share credentials.
 - **Encrypted in transit.** `establish_session` does an X25519 ECDH; the shared
   secret is HKDF-SHA256-expanded to a 32-byte AES-256-GCM key. Passwords are
   sealed under it (AES-GCM, so the extension decrypts natively with WebCrypto).
@@ -92,6 +93,9 @@ browser, so a host-side attacker watching USB traffic can't read it.
   - **`vaults-bridge-protocol`** — the newline-delimited-JSON framing (`frame`)
     and the request/response wire types (`message`) shared with the extension.
   - **`vaults-bridge-import`** — credential import helpers.
+  - **Portable encrypted backups** — `vaults-bridge-keystore` and the KeyOS UI
+    can export and restore passphrase-encrypted backups for replacement-device
+    recovery.
 - **`src/`** — the KeyOS/Slint app shell: the engine wiring, the approval-screen
   glue, the import flow, keystore persistence, and the device-key wiring (app
   seed → master key). `transport/` carries WebUSB (device) and WebSocket
@@ -124,11 +128,11 @@ unpacked → `extension/`); see [`extension/README.md`](extension/README.md).
 
 ## Status
 
-Proof-of-concept, validated on a Passport Prime dev unit over WebUSB: add a
-credential on the device, detect a login form in the browser, request a release,
-approve it on Passport, and watch the form fill — with the password encrypted the
-whole way across. The demo gate is `https://github.com/login` autofilling with
-on-device approval while a cross-origin iframe request is rejected.
+Public-release hardening branch in progress. The core now supports exact-origin
+matching, account selection for multiple logins, transactional remote saves,
+approval timeouts, stronger generated-password guarantees, and portable
+encrypted backup/restore. The extension still ships as a sideloaded Chromium
+MV3 build; simulator transport is treated as a developer-only feature.
 
 ## License
 

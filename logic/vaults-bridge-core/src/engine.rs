@@ -9,8 +9,9 @@ use std::sync::{Arc, Mutex};
 
 use rand_core::{OsRng, RngCore};
 use vaults_bridge_protocol::{
-    CharsetHint, ErrorCode, ErrorPayload, EstablishSessionParams, EstablishSessionResult,
-    GeneratePasswordParams, GeneratePasswordResult, ListOriginsResult, Method,
+    CharsetHint, CredentialSummary as WireCredentialSummary, ErrorCode, ErrorPayload,
+    EstablishSessionParams, EstablishSessionResult, GeneratePasswordParams, GeneratePasswordResult,
+    ListCredentialsParams, ListCredentialsResult, ListOriginsResult, Method,
     ReleaseCredentialParams, ReleaseCredentialResult, Request, Response, ResponseBody, StoreAction,
     StoreCredentialParams, StoreCredentialResult,
 };
@@ -141,6 +142,29 @@ impl<S: CredentialStore + 'static> Engine<S> {
                 Ok(ResponseBody::ListOrigins(ListOriginsResult { origins }))
             }
 
+            Method::ListCredentials(ListCredentialsParams { origin }) => {
+                self.gate_active_session(now_ms)?;
+                let canonical = canonicalize_origin(&origin)?;
+                let store = self.store.lock().unwrap();
+                let mut credentials: Vec<WireCredentialSummary> = store
+                    .list_credentials_for_origin(&canonical)
+                    .into_iter()
+                    .map(|c| WireCredentialSummary {
+                        username: c.username,
+                        label: c.label,
+                        last_used_at: c.last_used_at,
+                    })
+                    .collect();
+                credentials.sort_by(|a, b| {
+                    b.last_used_at
+                        .cmp(&a.last_used_at)
+                        .then_with(|| a.username.cmp(&b.username))
+                });
+                Ok(ResponseBody::ListCredentials(ListCredentialsResult {
+                    credentials,
+                }))
+            }
+
             Method::ReleaseCredential(ReleaseCredentialParams {
                 origin,
                 username_hint,
@@ -195,8 +219,19 @@ impl<S: CredentialStore + 'static> Engine<S> {
                     .iter()
                     .find(|r| r.username == *h)
                     .cloned()
-                    .unwrap_or_else(|| candidates[0].clone()),
-                None => candidates[0].clone(),
+                    .ok_or_else(|| {
+                        (
+                            ErrorCode::UnknownOrigin,
+                            "no matching username for origin".into(),
+                        )
+                    })?,
+                None if candidates.len() == 1 => candidates[0].clone(),
+                None => {
+                    return Err((
+                        ErrorCode::MultipleMatches,
+                        "multiple credentials match this origin".into(),
+                    ));
+                }
             };
             (chosen.username, Zeroizing::new(chosen.password))
         };
@@ -212,6 +247,9 @@ impl<S: CredentialStore + 'static> Engine<S> {
             .await;
         if decision == ApprovalDecision::Reject {
             return Err((ErrorCode::UserRejected, "user rejected".into()));
+        }
+        if decision == ApprovalDecision::Timeout {
+            return Err((ErrorCode::Timeout, "approval timed out".into()));
         }
 
         let mut s = self.session.lock().unwrap();
@@ -284,17 +322,15 @@ impl<S: CredentialStore + 'static> Engine<S> {
         if decision == ApprovalDecision::Reject {
             return Err((ErrorCode::UserRejected, "user rejected".into()));
         }
+        if decision == ApprovalDecision::Timeout {
+            return Err((ErrorCode::Timeout, "approval timed out".into()));
+        }
 
-        self.store
-            .lock()
-            .unwrap()
-            .upsert(canonical, username, (*password_plain).clone(), label)
-            .map_err(|_| (ErrorCode::Internal, "store backend".into()))?;
-
-        // Persistence MUST succeed before we tell the host "saved".
-        // Otherwise the user's UI says "Saved" but a power-cycle reveals
-        // the credential never reached disk.
-        (self.on_write)().map_err(|_| (ErrorCode::Internal, "persist failed".into()))?;
+        self.commit_store_mutation(|store| {
+            store
+                .upsert(canonical, username, (*password_plain).clone(), label)
+                .map_err(|_| (ErrorCode::Internal, "store backend".into()))
+        })?;
 
         Ok(StoreCredentialResult {
             action: store_action,
@@ -359,16 +395,17 @@ impl<S: CredentialStore + 'static> Engine<S> {
         if decision == ApprovalDecision::Reject {
             return Err((ErrorCode::UserRejected, "user rejected".into()));
         }
+        if decision == ApprovalDecision::Timeout {
+            return Err((ErrorCode::Timeout, "approval timed out".into()));
+        }
 
         let password = Zeroizing::new(generate_password(len as usize, &charset));
 
-        self.store
-            .lock()
-            .unwrap()
-            .upsert(canonical, username, (*password).clone(), label)
-            .map_err(|_| (ErrorCode::Internal, "store backend".into()))?;
-
-        (self.on_write)().map_err(|_| (ErrorCode::Internal, "persist failed".into()))?;
+        self.commit_store_mutation(|store| {
+            store
+                .upsert(canonical, username, (*password).clone(), label)
+                .map_err(|_| (ErrorCode::Internal, "store backend".into()))
+        })?;
 
         let mut s = self.session.lock().unwrap();
         let password_sealed = s
@@ -399,6 +436,30 @@ impl<S: CredentialStore + 'static> Engine<S> {
             return Err((ErrorCode::SessionExpired, "session idle timeout".into()));
         }
         Ok(())
+    }
+
+    fn commit_store_mutation<T>(
+        &self,
+        mutate: impl FnOnce(&mut S) -> Result<T, (ErrorCode, String)>,
+    ) -> Result<T, (ErrorCode, String)> {
+        let snapshot;
+        let result;
+        {
+            let mut store = self.store.lock().unwrap();
+            snapshot = store.snapshot();
+            result = mutate(&mut store)?;
+        }
+
+        // Persistence MUST succeed before we tell the host "saved".
+        // Otherwise the user's UI says "Saved" but a power-cycle reveals
+        // the credential never reached disk. If persistence fails, restore
+        // the in-memory view too so UI state cannot drift from durable state.
+        if (self.on_write)().is_err() {
+            self.store.lock().unwrap().restore_snapshot(snapshot);
+            return Err((ErrorCode::Internal, "persist failed".into()));
+        }
+
+        Ok(result)
     }
 }
 
@@ -445,43 +506,210 @@ fn map_session_err(e: SessionError) -> (ErrorCode, String) {
 /// `generate_password` returns.
 pub fn generate_password(len: usize, hint: &CharsetHint) -> String {
     let mut alphabet: Vec<u8> = Vec::with_capacity(96);
+    let mut classes: Vec<&[u8]> = Vec::with_capacity(3);
     if hint.letters {
-        alphabet.extend(b'a'..=b'z');
-        alphabet.extend(b'A'..=b'Z');
+        classes.push(b"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ");
+        alphabet.extend_from_slice(classes.last().unwrap());
     }
     if hint.digits {
-        alphabet.extend(b'0'..=b'9');
+        classes.push(b"0123456789");
+        alphabet.extend_from_slice(classes.last().unwrap());
     }
     if hint.symbols {
         // Common symbols accepted by most password forms. Excludes
         // backtick, backslash, quote, and space which trip up parsers.
-        alphabet.extend_from_slice(b"!@#$%^&*()-_=+[]{};:,.<>/?");
+        classes.push(b"!@#$%^&*()-_=+[]{};:,.<>/?");
+        alphabet.extend_from_slice(classes.last().unwrap());
     }
+    if len == 0 || alphabet.is_empty() {
+        return String::new();
+    }
+
+    let mut bytes = Vec::with_capacity(len);
+    for class in classes.iter().take(len) {
+        bytes.push(pick_byte(class));
+    }
+    while bytes.len() < len {
+        bytes.push(pick_byte(&alphabet));
+    }
+    shuffle(&mut bytes);
+
+    bytes.into_iter().map(char::from).collect()
+}
+
+fn pick_byte(alphabet: &[u8]) -> u8 {
     let n = alphabet.len() as u32;
-    let mut out = String::with_capacity(len);
-    let mut buf = [0u8; 64];
-    while out.len() < len {
-        OsRng.fill_bytes(&mut buf);
-        for &b in buf.iter() {
-            // Reject samples that would bias the distribution: 256 % n
-            // samples at the top of the byte range get discarded.
-            let limit: u32 = (256 - (256 % n)) as u32;
-            if (b as u32) >= limit {
-                continue;
-            }
-            let idx = (b as u32) % n;
-            out.push(alphabet[idx as usize] as char);
-            if out.len() == len {
-                break;
-            }
+    loop {
+        let mut b = [0u8; 1];
+        OsRng.fill_bytes(&mut b);
+        // Reject samples that would bias the distribution: 256 % n samples
+        // at the top of the byte range get discarded.
+        let limit = 256 - (256 % n);
+        if (b[0] as u32) < limit {
+            return alphabet[(b[0] as u32 % n) as usize];
         }
     }
-    out
+}
+
+fn shuffle(bytes: &mut [u8]) {
+    if bytes.len() < 2 {
+        return;
+    }
+    for i in (1..bytes.len()).rev() {
+        let j = random_index(i + 1);
+        bytes.swap(i, j);
+    }
+}
+
+fn random_index(upper_exclusive: usize) -> usize {
+    let n = upper_exclusive as u32;
+    loop {
+        let mut b = [0u8; 4];
+        OsRng.fill_bytes(&mut b);
+        let v = u32::from_le_bytes(b);
+        let limit = u32::MAX - (u32::MAX % n);
+        if v < limit {
+            return (v % n) as usize;
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::{
+        future::Future,
+        pin::Pin,
+        sync::{Arc, Mutex},
+        task::{Context, Poll, RawWaker, RawWakerVTable, Waker},
+    };
+
+    use vaults_bridge_protocol::{EstablishSessionParams, StoreCredentialParams};
+
+    use crate::{
+        approval::AutoApprove,
+        record::CredentialRecord,
+        session::Session,
+        store::{
+            CredentialMatch, CredentialStore, CredentialSummary, ExistingCredential, StoreError,
+        },
+    };
+
+    #[derive(Default)]
+    struct TestStore {
+        records: Vec<CredentialRecord>,
+    }
+
+    impl CredentialStore for TestStore {
+        type Snapshot = Vec<CredentialRecord>;
+
+        fn list_origins(&self) -> Vec<String> {
+            self.records.iter().map(|r| r.origin.clone()).collect()
+        }
+
+        fn list_credentials_for_origin(&self, origin: &str) -> Vec<CredentialSummary> {
+            self.records
+                .iter()
+                .filter(|r| r.origin == origin)
+                .map(|r| CredentialSummary {
+                    username: r.username.clone(),
+                    label: r.label.clone(),
+                    last_used_at: r.last_used_at,
+                })
+                .collect()
+        }
+
+        fn find_by_origin(&self, origin: &str) -> Vec<CredentialMatch> {
+            self.records
+                .iter()
+                .filter(|r| r.origin == origin)
+                .map(|r| CredentialMatch {
+                    username: r.username.clone(),
+                    password: r.password.clone(),
+                })
+                .collect()
+        }
+
+        fn snapshot(&self) -> Self::Snapshot {
+            self.records.clone()
+        }
+
+        fn restore_snapshot(&mut self, snapshot: Self::Snapshot) {
+            self.records = snapshot;
+        }
+
+        fn probe(&self, origin: &str, username: &str) -> ExistingCredential {
+            match self
+                .records
+                .iter()
+                .find(|r| r.origin == origin && r.username == username)
+            {
+                None => ExistingCredential::None,
+                Some(r) if r.archived => ExistingCredential::Archived,
+                Some(_) => ExistingCredential::Live,
+            }
+        }
+
+        fn upsert(
+            &mut self,
+            origin: String,
+            username: String,
+            password: String,
+            label: Option<String>,
+        ) -> Result<(), StoreError> {
+            let mut rec = CredentialRecord::new(origin, username, password);
+            rec.label = label.unwrap_or_default();
+            self.records.push(rec);
+            Ok(())
+        }
+    }
+
+    fn block_on<F: Future>(future: F) -> F::Output {
+        let waker = noop_waker();
+        let mut cx = Context::from_waker(&waker);
+        let mut future = Box::pin(future);
+        loop {
+            match Pin::new(&mut future).poll(&mut cx) {
+                Poll::Ready(v) => return v,
+                Poll::Pending => std::thread::yield_now(),
+            }
+        }
+    }
+
+    fn noop_waker() -> Waker {
+        unsafe fn clone(_: *const ()) -> RawWaker {
+            RawWaker::new(std::ptr::null(), &VTABLE)
+        }
+        unsafe fn wake(_: *const ()) {}
+        unsafe fn wake_by_ref(_: *const ()) {}
+        unsafe fn drop(_: *const ()) {}
+        static VTABLE: RawWakerVTable = RawWakerVTable::new(clone, wake, wake_by_ref, drop);
+        unsafe { Waker::from_raw(RawWaker::new(std::ptr::null(), &VTABLE)) }
+    }
+
+    fn establish(engine: &Engine<TestStore>) -> Session {
+        let mut host = Session::new();
+        let (host_pub, host_secret) = host.begin_host();
+        let resp = block_on(engine.handle(
+            Request {
+                id: "hs".into(),
+                method: Method::EstablishSession(EstablishSessionParams {
+                    host_pubkey: hex::encode(host_pub),
+                }),
+            },
+            1_000,
+        ));
+        let Response::Ok {
+            result: ResponseBody::EstablishSession(result),
+            ..
+        } = resp
+        else {
+            panic!("handshake failed");
+        };
+        host.complete_host(host_secret, &result.device_pubkey, SESSION_INFO, 1_000)
+            .unwrap();
+        host
+    }
 
     #[test]
     fn generate_respects_charset_letters_only() {
@@ -514,5 +742,88 @@ mod tests {
     fn generate_default_includes_all_classes_eventually() {
         let pw = generate_password(64, &CharsetHint::default());
         assert!(pw.chars().any(|c| c.is_ascii_alphabetic()));
+    }
+
+    #[test]
+    fn generate_default_guarantees_enabled_classes() {
+        let pw = generate_password(24, &CharsetHint::default());
+        assert!(pw.chars().any(|c| c.is_ascii_alphabetic()));
+        assert!(pw.chars().any(|c| c.is_ascii_digit()));
+        assert!(pw.chars().any(|c| "!@#$%^&*()-_=+[]{};:,.<>/?".contains(c)));
+    }
+
+    #[test]
+    fn generate_empty_when_no_classes_enabled() {
+        let pw = generate_password(
+            24,
+            &CharsetHint {
+                letters: false,
+                digits: false,
+                symbols: false,
+            },
+        );
+        assert!(pw.is_empty());
+    }
+
+    #[test]
+    fn store_rolls_back_when_persist_fails() {
+        let store = Arc::new(Mutex::new(TestStore::default()));
+        let engine = Engine::new(
+            store.clone(),
+            Arc::new(AutoApprove),
+            EngineConfig::default(),
+            Arc::new(|| Err(PersistError)),
+        );
+        let mut host = establish(&engine);
+        let sealed = host.seal(b"secret", 1_100).unwrap();
+
+        let resp = block_on(engine.handle(
+            Request {
+                id: "store".into(),
+                method: Method::StoreCredential(StoreCredentialParams {
+                    origin: "https://example.com".into(),
+                    username: "alice".into(),
+                    label: None,
+                    password_sealed: sealed,
+                    request_nonce: 1,
+                }),
+            },
+            1_200,
+        ));
+
+        let Response::Err { error, .. } = resp else {
+            panic!("store unexpectedly succeeded");
+        };
+        assert_eq!(error.code, ErrorCode::Internal as i32);
+        assert!(store.lock().unwrap().records.is_empty());
+    }
+
+    #[test]
+    fn release_without_hint_rejects_multiple_matches() {
+        let store = Arc::new(Mutex::new(TestStore {
+            records: vec![
+                CredentialRecord::new("https://example.com".into(), "alice".into(), "a".into()),
+                CredentialRecord::new("https://example.com".into(), "bob".into(), "b".into()),
+            ],
+        }));
+        let engine = Engine::new_in_memory(store, Arc::new(AutoApprove), EngineConfig::default());
+        let _host = establish(&engine);
+
+        let resp = block_on(engine.handle(
+            Request {
+                id: "release".into(),
+                method: Method::ReleaseCredential(ReleaseCredentialParams {
+                    origin: "https://example.com".into(),
+                    username_hint: None,
+                    request_nonce: 1,
+                }),
+            },
+            1_200,
+        ));
+
+        let Response::Err { error, .. } = resp else {
+            panic!("release unexpectedly succeeded");
+        };
+        assert_eq!(error.code, ErrorCode::MultipleMatches as i32);
     }
 }

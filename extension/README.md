@@ -13,8 +13,9 @@ directly through `navigator.usb`. See [`../docs/PROTOCOL.md`](../docs/PROTOCOL.m
 3. Open the extension's **Settings** (options) page to pair:
    - **WebUSB** (default) — click **Pair Passport Prime** and pick your Prime in
      the Chromium picker. The grant is per-extension and drops on reload.
-   - **Simulator mode** (WebSocket) — connects to `ws://127.0.0.1:9876` for
-     hosted-mode development against a host build of the app (no hardware).
+   - **Developer mode → Simulator mode** (WebSocket) — hidden by default;
+     connects to `ws://127.0.0.1:9876` for hosted-mode development against a
+     host build of the app (no hardware).
 
 A user gesture is required for the WebUSB picker, which is why pairing is
 initiated from the options page rather than automatically.
@@ -24,7 +25,7 @@ initiated from the options page rather than automatically.
 ```
 manifest.json          MV3 manifest (permissions, service worker, content script)
 background.js          message router + sender.tab.url origin verification (the security gate)
-content.js             login-form detection and fill
+content.js             login-form detection, inline account chooser, and fill
 offscreen.{html,js}    offscreen document that keeps the WebUSB session alive across SW recycles
 options.{html,js,css}  Pair / Forget device, WebUSB ↔ simulator transport toggle
 popup.{html,js,css}    connection status, "manage on device" link
@@ -36,8 +37,10 @@ icons/                 toolbar / store icons
 
 - The background worker derives the requesting tab's origin authoritatively from
   `sender.tab.url`; a content script (or a cross-origin iframe) cannot spoof it.
-  A request whose claimed origin disagrees with the tab origin is dropped before
-  any USB call.
+  The page and content script never get to choose the origin sent over USB.
+- Public builds use exact-origin matching. Multiple logins for the same origin
+  are listed without passwords; the user chooses a username before Passport is
+  asked to release the secret.
 - Passwords arrive sealed under the ECDH-derived AES-256-GCM session key and are
   decrypted in-page with WebCrypto. The secret never crosses USB in clear.
 - WebUSB is unavailable in Safari and Firefox; use a Chromium-family browser

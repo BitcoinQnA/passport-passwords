@@ -9,14 +9,10 @@
 
 import { WebUsbTransport } from "./webusb-transport.js";
 
-console.log("[vaults-bridge/offscreen] loaded");
-
 const transport = new WebUsbTransport();
-console.log("[vaults-bridge/offscreen] transport instantiated");
 
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   if (!msg || msg.target !== "offscreen-usb") return;
-  console.log("[vaults-bridge/offscreen] msg:", msg.type, msg.method);
   (async () => {
     try {
       if (msg.type === "connect") {
@@ -27,7 +23,6 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
         sendResponse({ ok: true });
       } else if (msg.type === "rpc") {
         const result = await transport.rpc(msg.method, msg.params);
-        console.log("[vaults-bridge/offscreen] rpc result", msg.method, result);
         sendResponse({ ok: true, result });
       } else {
         sendResponse({ ok: false, error: `unknown type ${msg.type}` });
@@ -42,5 +37,3 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   })();
   return true;
 });
-
-console.log("[vaults-bridge/offscreen] listener registered");

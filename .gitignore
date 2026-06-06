@@ -1,4 +1,5 @@
 /target
+/logic/target
 **/*.rs.bk
 .DS_Store
 .codex/

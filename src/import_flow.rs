@@ -21,7 +21,10 @@ use std::sync::{Arc, Mutex};
 
 use slint_keyos_platform::slint::{ComponentHandle, Weak};
 #[cfg(target_os = "xous")]
-use vaults_bridge_core::Origin;
+use vaults_bridge_core::{
+    engine::{MAX_LABEL_BYTES, MAX_ORIGIN_BYTES, MAX_PASSWORD_BYTES, MAX_USERNAME_BYTES},
+    Origin,
+};
 use vaults_bridge_keystore::{ImportItem, ImportPolicy};
 
 use crate::{AppWindow, Callbacks};
@@ -30,7 +33,12 @@ use crate::{AppWindow, Callbacks};
 /// import is pending.
 pub type PendingRecords = Arc<Mutex<Option<Vec<ImportItem>>>>;
 
-pub fn new_pending() -> PendingRecords { Arc::new(Mutex::new(None)) }
+#[cfg(target_os = "xous")]
+const MAX_NOTES_BYTES: usize = 2048;
+
+pub fn new_pending() -> PendingRecords {
+    Arc::new(Mutex::new(None))
+}
 
 /// Hosted-simulator stub. The hosted target doesn't have access to the
 /// system file picker. Surface a friendly error instead of failing
@@ -38,7 +46,8 @@ pub fn new_pending() -> PendingRecords { Arc::new(Mutex::new(None)) }
 #[cfg(not(target_os = "xous"))]
 pub fn pick_and_parse(_pending: &PendingRecords, ui_weak: &Weak<AppWindow>) {
     if let Some(ui) = ui_weak.upgrade() {
-        ui.global::<Callbacks>().set_import_error("File import is only available on hardware.".into());
+        ui.global::<Callbacks>()
+            .set_import_error("File import is only available on hardware.".into());
     }
 }
 
@@ -130,13 +139,21 @@ pub fn pick_and_parse(pending: &PendingRecords, ui_weak: &Weak<AppWindow>) {
                     return None;
                 }
             };
-            if r.username.trim().is_empty() || r.password.is_empty() {
+            let username = r.username.trim().to_string();
+            if username.is_empty()
+                || r.password.is_empty()
+                || origin.len() > MAX_ORIGIN_BYTES
+                || username.len() > MAX_USERNAME_BYTES
+                || r.label.len() > MAX_LABEL_BYTES
+                || r.password.len() > MAX_PASSWORD_BYTES
+                || r.notes.len() > MAX_NOTES_BYTES
+            {
                 skipped_invalid += 1;
                 return None;
             }
             Some(ImportItem {
                 origin,
-                username: r.username,
+                username,
                 password: (*r.password).clone(),
                 label: r.label,
                 notes: r.notes,
@@ -161,7 +178,10 @@ pub fn pick_and_parse(pending: &PendingRecords, ui_weak: &Weak<AppWindow>) {
 }
 
 #[cfg(target_os = "xous")]
-fn read_file_bytes(path: &str, location: slint_keyos_platform::fs::Location) -> Result<Vec<u8>, String> {
+fn read_file_bytes(
+    path: &str,
+    location: slint_keyos_platform::fs::Location,
+) -> Result<Vec<u8>, String> {
     use std::io::Read;
 
     use slint_keyos_platform::fs::{FileSystem, OpenFlags};
@@ -170,10 +190,19 @@ fn read_file_bytes(path: &str, location: slint_keyos_platform::fs::Location) -> 
 
     let fs: FileSystem<FileSystemPermissions> = FileSystem::default();
     let mut file = fs
-        .open_file(path.to_string(), location, OpenFlags { read: true, write: false, create: false })
+        .open_file(
+            path.to_string(),
+            location,
+            OpenFlags {
+                read: true,
+                write: false,
+                create: false,
+            },
+        )
         .map_err(|e| format!("open: {e:?}"))?;
     let mut buf = Vec::new();
-    file.read_to_end(&mut buf).map_err(|e| format!("read: {e:?}"))?;
+    file.read_to_end(&mut buf)
+        .map_err(|e| format!("read: {e:?}"))?;
     Ok(buf)
 }
 
@@ -186,7 +215,9 @@ pub fn policy_from_int(p: i32) -> ImportPolicy {
     }
 }
 
-pub fn cancel(pending: &PendingRecords) { *pending.lock().unwrap() = None; }
+pub fn cancel(pending: &PendingRecords) {
+    *pending.lock().unwrap() = None;
+}
 
 #[cfg(target_os = "xous")]
 fn set_error(ui_weak: &Weak<AppWindow>, msg: &str) {

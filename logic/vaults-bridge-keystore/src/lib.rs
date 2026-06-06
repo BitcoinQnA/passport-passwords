@@ -3,28 +3,46 @@
 
 //! Encrypted-at-rest credential storage.
 //!
-//! Layout: a single JSON blob containing a vector of records. Records are
-//! sealed individually with AES-256-GCM under a key derived via HKDF-SHA256
-//! from a master secret. On Prime that master is `security.app_seed()`; in
-//! tests and the simulator it is supplied directly.
+//! Layout: a single JSON blob containing a vector of records, sealed with
+//! AES-256-GCM under a key derived via HKDF-SHA256 from a master secret. On
+//! Prime that master is `security.app_seed()`; in tests and the simulator it
+//! is supplied directly.
 
 use aes_gcm::{
     aead::{Aead, KeyInit},
     Aes256Gcm, Nonce,
 };
 use hkdf::Hkdf;
+use hmac::{Hmac, Mac};
 use rand_core::{OsRng, RngCore};
+use serde::{Deserialize, Serialize};
 use sha2::Sha256;
 use thiserror::Error;
 use uuid::Uuid;
 use vaults_bridge_core::{
-    origin::origin_match_key,
-    store::{CredentialMatch, ExistingCredential, StoreError},
+    store::{CredentialMatch, CredentialSummary, ExistingCredential, StoreError},
     CredentialRecord, CredentialStore,
 };
 use zeroize::Zeroize;
 
 const KEY_INFO: &[u8] = b"vaults-bridge keystore v1";
+const BACKUP_MAGIC: &str = "vaults-bridge-backup";
+const BACKUP_VERSION: u8 = 1;
+const BACKUP_KDF_ITERATIONS: u32 = 200_000;
+const BACKUP_SALT_BYTES: usize = 16;
+
+type HmacSha256 = Hmac<Sha256>;
+
+#[derive(Serialize, Deserialize)]
+struct BackupFile {
+    magic: String,
+    version: u8,
+    kdf: String,
+    iterations: u32,
+    salt_hex: String,
+    nonce_hex: String,
+    ciphertext_hex: String,
+}
 
 /// One credential coming in from a bulk-import parser. We avoid taking
 /// `vaults_bridge_import::ImportedRecord` directly here so the keystore
@@ -68,6 +86,12 @@ pub enum KeystoreError {
     NotFound,
     #[error("not archived (delete only allowed on archived)")]
     NotArchived,
+    #[error("backup passphrase is required")]
+    BackupPassphraseRequired,
+    #[error("backup format is not supported")]
+    BackupUnsupported,
+    #[error("backup is malformed")]
+    BackupMalformed,
     #[error("serde: {0}")]
     Serde(#[from] serde_json::Error),
 }
@@ -95,6 +119,87 @@ impl Keystore {
     pub fn seal(&self) -> Result<Vec<u8>, KeystoreError> {
         let raw = serde_json::to_vec(&self.records)?;
         seal(&self.key, &raw)
+    }
+
+    /// Export a portable encrypted backup. The backup is encrypted with a
+    /// passphrase-derived key, not the device seed, so it can be restored
+    /// onto replacement hardware if the user kept the passphrase.
+    pub fn export_backup(&self, passphrase: &[u8]) -> Result<Vec<u8>, KeystoreError> {
+        if passphrase.is_empty() {
+            return Err(KeystoreError::BackupPassphraseRequired);
+        }
+        let raw = serde_json::to_vec(&self.records)?;
+        let mut salt = [0u8; BACKUP_SALT_BYTES];
+        OsRng.fill_bytes(&mut salt);
+        let key = derive_backup_key(passphrase, &salt, BACKUP_KDF_ITERATIONS)?;
+        let sealed = seal(&key, &raw)?;
+        let (nonce, ciphertext) = sealed.split_at(12);
+        let backup = BackupFile {
+            magic: BACKUP_MAGIC.to_string(),
+            version: BACKUP_VERSION,
+            kdf: "pbkdf2-hmac-sha256".to_string(),
+            iterations: BACKUP_KDF_ITERATIONS,
+            salt_hex: hex::encode(salt),
+            nonce_hex: hex::encode(nonce),
+            ciphertext_hex: hex::encode(ciphertext),
+        };
+        serde_json::to_vec(&backup).map_err(KeystoreError::from)
+    }
+
+    /// Restore a portable backup into a new keystore under this device's
+    /// master secret.
+    pub fn open_backup(
+        master: &[u8],
+        passphrase: &[u8],
+        backup: &[u8],
+    ) -> Result<Self, KeystoreError> {
+        let records = Self::records_from_backup(passphrase, backup)?;
+        Ok(Self {
+            records,
+            key: derive_key(master),
+        })
+    }
+
+    /// Decrypt a portable backup into credential records. The caller can then
+    /// either inspect the count before restore or install the records into an
+    /// already-open keystore, preserving that keystore's current device key.
+    pub fn records_from_backup(
+        passphrase: &[u8],
+        backup: &[u8],
+    ) -> Result<Vec<CredentialRecord>, KeystoreError> {
+        if passphrase.is_empty() {
+            return Err(KeystoreError::BackupPassphraseRequired);
+        }
+        let file: BackupFile = serde_json::from_slice(backup)?;
+        if file.magic != BACKUP_MAGIC
+            || file.version != BACKUP_VERSION
+            || file.kdf != "pbkdf2-hmac-sha256"
+            || file.iterations != BACKUP_KDF_ITERATIONS
+        {
+            return Err(KeystoreError::BackupUnsupported);
+        }
+        let salt = hex::decode(file.salt_hex).map_err(|_| KeystoreError::BackupMalformed)?;
+        if salt.len() != BACKUP_SALT_BYTES {
+            return Err(KeystoreError::BackupMalformed);
+        }
+        let nonce = hex::decode(file.nonce_hex).map_err(|_| KeystoreError::BackupMalformed)?;
+        if nonce.len() != 12 {
+            return Err(KeystoreError::BackupMalformed);
+        }
+        let ciphertext =
+            hex::decode(file.ciphertext_hex).map_err(|_| KeystoreError::BackupMalformed)?;
+        let key = derive_backup_key(passphrase, &salt, file.iterations)?;
+        let mut sealed = Vec::with_capacity(nonce.len() + ciphertext.len());
+        sealed.extend_from_slice(&nonce);
+        sealed.extend_from_slice(&ciphertext);
+        let raw = unseal(&key, &sealed)?;
+        serde_json::from_slice(&raw).map_err(KeystoreError::from)
+    }
+
+    /// Replace all records in this open keystore. The encryption key stays the
+    /// current device key, so the next `seal()` writes a device-bound vault.
+    pub fn replace_records(&mut self, records: Vec<CredentialRecord>) {
+        self.records = records;
     }
 
     pub fn records(&self) -> &[CredentialRecord] {
@@ -249,6 +354,8 @@ impl Keystore {
 }
 
 impl CredentialStore for Keystore {
+    type Snapshot = Vec<CredentialRecord>;
+
     fn list_origins(&self) -> Vec<String> {
         // Engine path: only LIVE credentials are exposed to the host.
         let mut s: Vec<String> = self
@@ -263,19 +370,37 @@ impl CredentialStore for Keystore {
         s
     }
 
-    fn find_by_origin(&self, origin: &str) -> Vec<CredentialMatch> {
-        // Fill path: match on scheme + registrable domain so a record
-        // saved on github.com fills on gist.github.com. Archived records
-        // are unreleasable. Save/probe still use exact-origin keys.
-        let target = origin_match_key(origin);
+    fn list_credentials_for_origin(&self, origin: &str) -> Vec<CredentialSummary> {
         self.records
             .iter()
-            .filter(|r| !r.archived && origin_match_key(&r.origin) == target)
+            .filter(|r| !r.archived && r.origin == origin)
+            .map(|r| CredentialSummary {
+                username: r.username.clone(),
+                label: r.label.clone(),
+                last_used_at: r.last_used_at,
+            })
+            .collect()
+    }
+
+    fn find_by_origin(&self, origin: &str) -> Vec<CredentialMatch> {
+        // Fill path is exact-origin for public release: subdomains are
+        // separate sites unless the user stores a credential for each one.
+        self.records
+            .iter()
+            .filter(|r| !r.archived && r.origin == origin)
             .map(|r| CredentialMatch {
                 username: r.username.clone(),
                 password: r.password.clone(),
             })
             .collect()
+    }
+
+    fn snapshot(&self) -> Self::Snapshot {
+        self.snapshot()
+    }
+
+    fn restore_snapshot(&mut self, snapshot: Self::Snapshot) {
+        self.restore_snapshot(snapshot);
     }
 
     fn probe(&self, origin: &str, username: &str) -> ExistingCredential {
@@ -340,6 +465,35 @@ fn derive_key(master: &[u8]) -> [u8; 32] {
     out
 }
 
+fn derive_backup_key(
+    passphrase: &[u8],
+    salt: &[u8],
+    iterations: u32,
+) -> Result<[u8; 32], KeystoreError> {
+    if iterations == 0 {
+        return Err(KeystoreError::BackupMalformed);
+    }
+    let mut u = hmac_sha256(passphrase, &[salt, &[0, 0, 0, 1]].concat())?;
+    let mut out = u;
+    for _ in 1..iterations {
+        u = hmac_sha256(passphrase, &u)?;
+        for (dst, src) in out.iter_mut().zip(u.iter()) {
+            *dst ^= *src;
+        }
+    }
+    Ok(out)
+}
+
+fn hmac_sha256(key: &[u8], data: &[u8]) -> Result<[u8; 32], KeystoreError> {
+    let mut mac =
+        <HmacSha256 as Mac>::new_from_slice(key).map_err(|_| KeystoreError::BackupMalformed)?;
+    mac.update(data);
+    let bytes = mac.finalize().into_bytes();
+    let mut out = [0u8; 32];
+    out.copy_from_slice(&bytes);
+    Ok(out)
+}
+
 fn seal(key: &[u8; 32], plaintext: &[u8]) -> Result<Vec<u8>, KeystoreError> {
     let cipher = Aes256Gcm::new(key.into());
     let mut nonce = [0u8; 12];
@@ -392,7 +546,7 @@ mod tests {
     }
 
     #[test]
-    fn fill_matches_on_registrable_domain() {
+    fn fill_matches_exact_origin_only() {
         let mut ks = Keystore::new(b"test-master-secret-32-bytes-long_");
         ks.add(CredentialRecord::new(
             "https://github.com".into(),
@@ -400,13 +554,12 @@ mod tests {
             "hunter2".into(),
         ));
 
-        // Same registrable domain, different subdomain -> match.
         assert_eq!(ks.find_by_origin("https://github.com").len(), 1);
-        assert_eq!(ks.find_by_origin("https://gist.github.com").len(), 1);
+        assert_eq!(ks.find_by_origin("https://gist.github.com").len(), 0);
         assert_eq!(
             ks.find_by_origin("https://api.deeply.nested.github.com")
                 .len(),
-            1
+            0
         );
 
         // Different registrable domain -> no match.
@@ -485,5 +638,64 @@ mod tests {
         ));
         let blob = ks.seal().unwrap();
         assert!(Keystore::open(b"wrong-master", &blob).is_err());
+    }
+
+    #[test]
+    fn backup_round_trips_to_new_master() {
+        let mut ks = Keystore::new(b"old-master");
+        ks.add(CredentialRecord::new(
+            "https://example.com".into(),
+            "alice".into(),
+            "p4ss".into(),
+        ));
+
+        let backup = ks.export_backup(b"correct horse battery staple").unwrap();
+        let restored =
+            Keystore::open_backup(b"new-master", b"correct horse battery staple", &backup).unwrap();
+
+        assert_eq!(restored.records().len(), 1);
+        assert_eq!(restored.find_by_origin("https://example.com").len(), 1);
+        let resealed = restored.seal().unwrap();
+        assert!(Keystore::open(b"new-master", &resealed).is_ok());
+        assert!(Keystore::open(b"old-master", &resealed).is_err());
+    }
+
+    #[test]
+    fn backup_rejects_wrong_passphrase() {
+        let mut ks = Keystore::new(b"old-master");
+        ks.add(CredentialRecord::new(
+            "https://example.com".into(),
+            "alice".into(),
+            "p4ss".into(),
+        ));
+
+        let backup = ks.export_backup(b"right").unwrap();
+        assert!(Keystore::open_backup(b"new-master", b"wrong", &backup).is_err());
+    }
+
+    #[test]
+    fn backup_records_can_replace_existing_keystore() {
+        let mut original = Keystore::new(b"old-master");
+        original.add(CredentialRecord::new(
+            "https://example.com".into(),
+            "alice".into(),
+            "p4ss".into(),
+        ));
+        let backup = original.export_backup(b"passphrase").unwrap();
+
+        let mut current = Keystore::new(b"current-master");
+        current.add(CredentialRecord::new(
+            "https://old.example".into(),
+            "bob".into(),
+            "old".into(),
+        ));
+        let records = Keystore::records_from_backup(b"passphrase", &backup).unwrap();
+        current.replace_records(records);
+
+        assert_eq!(current.records().len(), 1);
+        assert_eq!(current.find_by_origin("https://example.com").len(), 1);
+        let resealed = current.seal().unwrap();
+        assert!(Keystore::open(b"current-master", &resealed).is_ok());
+        assert!(Keystore::open(b"old-master", &resealed).is_err());
     }
 }

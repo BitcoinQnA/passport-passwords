@@ -20,6 +20,7 @@ const FILLED_VALUES = new WeakMap();
 // Per-input flag: user already saw + handled (saved or dismissed) the
 // prompt for the current value. Cleared if they type a different value.
 const PROMPTED_VALUES = new WeakMap();
+const ACCOUNT_MENUS = new WeakMap();
 
 // Background -> content (popup-driven actions).
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
@@ -127,31 +128,167 @@ function attachOverlay(input) {
     btn.textContent = "Approve on device…";
     btn.disabled = true;
     try {
-      const resp = await chrome.runtime.sendMessage({
-        method: "release_credential",
-      });
+      const resp = await chrome.runtime.sendMessage({ action: "list-from-content" });
       if (resp.error) throw resp.error;
-      const { username, password } = resp.result;
-      const userField = findUsernameField(input);
-      if (userField && username) setFieldValue(userField, username);
-      setFieldValue(input, password);
-      FILLED_VALUES.set(input, password);
-      btn.textContent = "Filled";
-      setTimeout(() => {
-        btn.textContent = "Passwords";
-        btn.disabled = false;
-        inflight = false;
-      }, 1500);
+      const credentials = resp.result?.credentials || [];
+      if (credentials.length === 0) {
+        btn.textContent = "No saved login";
+        setTimeout(() => resetButton(btn, () => { inflight = false; }), 1800);
+        return;
+      }
+      if (credentials.length === 1) {
+        await fillCredential(input, credentials[0].username);
+        btn.textContent = "Filled";
+        setTimeout(() => resetButton(btn, () => { inflight = false; }), 1500);
+        return;
+      }
+      btn.textContent = "Choose account";
+      showAccountMenu(input, credentials, async (username) => {
+        btn.textContent = "Approve on device…";
+        btn.disabled = true;
+        try {
+          await fillCredential(input, username);
+          btn.textContent = "Filled";
+          setTimeout(() => resetButton(btn, () => { inflight = false; }), 1500);
+        } catch {
+          btn.textContent = "Failed";
+          setTimeout(() => resetButton(btn, () => { inflight = false; }), 2000);
+        }
+      }, () => {
+        resetButton(btn, () => { inflight = false; });
+      });
     } catch {
       // Don't surface device-side error text to the page DOM.
       btn.textContent = "Failed";
-      setTimeout(() => {
-        btn.textContent = "Passwords";
-        btn.disabled = false;
-        inflight = false;
-      }, 2000);
+      setTimeout(() => resetButton(btn, () => { inflight = false; }), 2000);
     }
   });
+}
+
+function resetButton(btn, after) {
+  btn.textContent = "Passwords";
+  btn.disabled = false;
+  after?.();
+}
+
+async function fillCredential(input, username) {
+  const resp = await chrome.runtime.sendMessage({
+    action: "release-from-content",
+    username,
+  });
+  if (resp.error) throw resp.error;
+  const { username: releasedUsername, password } = resp.result;
+  const userField = findUsernameField(input);
+  if (userField && releasedUsername) setFieldValue(userField, releasedUsername);
+  setFieldValue(input, password);
+  FILLED_VALUES.set(input, password);
+}
+
+function showAccountMenu(input, credentials, onPick, onDismiss) {
+  dismissAccountMenu(input);
+
+  const host = document.createElement("div");
+  host.style.cssText =
+    "position:absolute;z-index:2147483647;top:0;left:0;pointer-events:none;";
+  document.body.appendChild(host);
+  const root = host.attachShadow({ mode: "closed" });
+
+  const wrap = document.createElement("div");
+  wrap.style.cssText = [
+    "pointer-events:auto",
+    "display:flex",
+    "flex-direction:column",
+    "gap:4px",
+    "padding:6px",
+    "background:#18181b",
+    "color:#f4f4f5",
+    `border:1px solid ${PRIME_TEAL}`,
+    "border-radius:8px",
+    "font-family:-apple-system,BlinkMacSystemFont,'Inter','Segoe UI',sans-serif",
+    "box-shadow:0 4px 14px rgba(0,0,0,0.35)",
+    "min-width:220px",
+    "max-width:320px",
+  ].join(";");
+
+  credentials.forEach((credential) => {
+    const item = document.createElement("button");
+    item.type = "button";
+    item.textContent = credential.label
+      ? `${credential.label} — ${credential.username}`
+      : credential.username;
+    item.title = credential.username;
+    item.style.cssText = [
+      "width:100%",
+      "text-align:left",
+      "padding:8px 10px",
+      "border-radius:6px",
+      "border:1px solid transparent",
+      "background:transparent",
+      "color:#f4f4f5",
+      "font-size:12px",
+      "font-weight:500",
+      "cursor:pointer",
+      "overflow:hidden",
+      "text-overflow:ellipsis",
+      "white-space:nowrap",
+    ].join(";");
+    item.addEventListener("mouseenter", () => {
+      item.style.background = "#27272a";
+    });
+    item.addEventListener("mouseleave", () => {
+      item.style.background = "transparent";
+    });
+    item.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (!e.isTrusted) return;
+      dismissAccountMenu(input);
+      onPick(credential.username);
+    });
+    wrap.appendChild(item);
+  });
+
+  const cancel = document.createElement("button");
+  cancel.type = "button";
+  cancel.textContent = "Cancel";
+  cancel.style.cssText = [
+    "margin-top:2px",
+    "padding:7px 10px",
+    "border-radius:6px",
+    "border:1px solid #3f3f46",
+    "background:transparent",
+    "color:#a1a1aa",
+    "font-size:12px",
+    "cursor:pointer",
+  ].join(";");
+  cancel.addEventListener("click", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!e.isTrusted) return;
+    dismissAccountMenu(input);
+    onDismiss();
+  });
+  wrap.appendChild(cancel);
+
+  root.appendChild(wrap);
+
+  function reposition() {
+    const r = input.getBoundingClientRect();
+    host.style.top = `${window.scrollY + r.top + r.height + 34}px`;
+    host.style.left = `${window.scrollX + r.left}px`;
+  }
+  reposition();
+  window.addEventListener("scroll", reposition, true);
+  window.addEventListener("resize", reposition);
+
+  ACCOUNT_MENUS.set(input, { host, onDismiss });
+}
+
+function dismissAccountMenu(input) {
+  const menu = ACCOUNT_MENUS.get(input);
+  if (!menu) return;
+  menu.host.remove();
+  ACCOUNT_MENUS.delete(input);
 }
 
 // --- Save-on-change prompt ----------------------------------------------
@@ -365,7 +502,24 @@ function setFieldValue(input, value) {
   input.dispatchEvent(new Event("change", { bubbles: true }));
 }
 
-function scan() {}
+function scan() {
+  const inputs = [...document.querySelectorAll('input[type="password"]')]
+    .filter(isUsablePasswordInput);
+  for (const input of inputs) {
+    attachOverlay(input);
+    attachSavePrompt(input);
+  }
+}
+
+function isUsablePasswordInput(input) {
+  if (!(input instanceof HTMLInputElement)) return false;
+  if (input.disabled || input.readOnly) return false;
+  const r = input.getBoundingClientRect();
+  if (r.width < 24 || r.height < 12) return false;
+  const style = window.getComputedStyle(input);
+  if (style.visibility === "hidden" || style.display === "none") return false;
+  return true;
+}
 
 scan();
 const obs = new MutationObserver(scan);

@@ -12,6 +12,7 @@
 //!   ping
 //!   establish_session    ECDH X25519 handshake
 //!   list_origins         origins with at least one live credential
+//!   list_credentials     usernames/labels for one origin, no passwords
 //!   release_credential   release stored password to host (with approval)
 //!   store_credential     save / update / restore-and-update a credential (with approval)
 //!   generate_password    device generates strong random password and stores
@@ -32,6 +33,7 @@ pub enum Method {
     Ping,
     EstablishSession(EstablishSessionParams),
     ListOrigins,
+    ListCredentials(ListCredentialsParams),
     ReleaseCredential(ReleaseCredentialParams),
     StoreCredential(StoreCredentialParams),
     GeneratePassword(GeneratePasswordParams),
@@ -53,6 +55,24 @@ pub struct EstablishSessionResult {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ListOriginsResult {
     pub origins: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct ListCredentialsParams {
+    pub origin: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct CredentialSummary {
+    pub username: String,
+    pub label: String,
+    pub last_used_at: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ListCredentialsResult {
+    pub credentials: Vec<CredentialSummary>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -166,6 +186,7 @@ pub enum ResponseBody {
     Pong { pong: bool },
     EstablishSession(EstablishSessionResult),
     ListOrigins(ListOriginsResult),
+    ListCredentials(ListCredentialsResult),
     ReleaseCredential(ReleaseCredentialResult),
     StoreCredential(StoreCredentialResult),
     GeneratePassword(GeneratePasswordResult),
@@ -192,6 +213,7 @@ pub enum ErrorCode {
     /// Password generation policy violated (e.g., requested length out of
     /// range, or all charset classes disabled).
     BadPolicy = 9,
+    MultipleMatches = 10,
     Internal = 99,
 }
 
@@ -222,6 +244,18 @@ mod tests {
         };
         let s = serde_json::to_string(&req).unwrap();
         let back: Request = serde_json::from_str(&s).unwrap();
+        assert_eq!(req, back);
+    }
+
+    #[test]
+    fn round_trip_list_credentials() {
+        let req = Request {
+            id: "lc1".into(),
+            method: Method::ListCredentials(ListCredentialsParams {
+                origin: "https://example.com".into(),
+            }),
+        };
+        let back: Request = serde_json::from_str(&serde_json::to_string(&req).unwrap()).unwrap();
         assert_eq!(req, back);
     }
 

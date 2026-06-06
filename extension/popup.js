@@ -9,6 +9,9 @@ $("open-options").addEventListener("click", () => {
 
 let pageHasPasswordField = false;
 let pageHasPasswordValue = false;
+let matchingCredentials = [];
+let credentialsLoaded = false;
+let selectedUsername = "";
 
 function setStatus(state, text) {
   const pill = $("status-pill");
@@ -44,6 +47,8 @@ function friendlyError(e) {
       return { kind: "err", text: "Unlock Prime with your PIN, then try again." };
     case 7:
       return { kind: "err", text: "Session expired. Try again." };
+    case 10:
+      return { kind: "info", text: "Choose which saved login to fill." };
     default:
       return { kind: "err", text: e?.message || String(e) };
   }
@@ -54,7 +59,10 @@ function setActionsEnabled(on) {
   // Save needs a username and a password value typed on the page.
   // Generate just needs a username.
   const u = $("username").value.trim();
-  $("fill").disabled = !on || !pageHasPasswordField;
+  $("fill").disabled =
+    !on ||
+    !pageHasPasswordField ||
+    (credentialsLoaded && matchingCredentials.length === 0);
   $("generate").disabled = !on || !u;
   $("save").disabled = !on || !u || !pageHasPasswordValue;
 }
@@ -84,6 +92,59 @@ async function probeForm(tab) {
   }
 }
 
+async function refreshMatches() {
+  try {
+    const resp = await chrome.runtime.sendMessage({ action: "list-active-credentials" });
+    if (resp?.error) throw resp.error;
+    matchingCredentials = resp.result?.credentials || [];
+    credentialsLoaded = true;
+    selectedUsername = matchingCredentials[0]?.username || "";
+    renderMatches();
+  } catch {
+    matchingCredentials = [];
+    credentialsLoaded = false;
+    selectedUsername = "";
+    renderMatches();
+  }
+}
+
+function renderMatches() {
+  const box = $("matches");
+  const list = $("matches-list");
+  list.textContent = "";
+  box.classList.toggle("hidden", !credentialsLoaded);
+
+  if (!credentialsLoaded) return;
+  if (matchingCredentials.length === 0) {
+    const empty = document.createElement("div");
+    empty.className = "hint";
+    empty.textContent = "No saved logins for this site.";
+    list.appendChild(empty);
+    return;
+  }
+
+  for (const credential of matchingCredentials) {
+    const item = document.createElement("button");
+    item.type = "button";
+    item.className = `match-item${credential.username === selectedUsername ? " selected" : ""}`;
+    const label = document.createElement("span");
+    label.className = "match-label";
+    label.textContent = credential.label || credential.username;
+    const user = document.createElement("span");
+    user.className = "match-user";
+    user.textContent = credential.username;
+    item.appendChild(label);
+    if (credential.label) item.appendChild(user);
+    item.addEventListener("click", () => {
+      selectedUsername = credential.username;
+      if (!$("username").value.trim()) $("username").value = credential.username;
+      renderMatches();
+      setActionsEnabled(true);
+    });
+    list.appendChild(item);
+  }
+}
+
 async function refreshStatus() {
   setStatus("pending", "Connecting");
   try {
@@ -106,6 +167,7 @@ async function init() {
   const tab = await showActiveSite();
   await refreshStatus();
   const form = await probeForm(tab);
+  await refreshMatches();
 
   if (form) {
     pageHasPasswordField = !!form.has_password_field;
@@ -161,10 +223,17 @@ async function runAction(action, pendingText, verbForResult) {
 }
 
 async function runFillAction() {
+  if (matchingCredentials.length > 1 && !selectedUsername) {
+    setResult("info", "Choose which saved login to fill.");
+    return;
+  }
   setResult("info", "Approve on device…");
   disableAllActions();
   try {
-    const resp = await chrome.runtime.sendMessage({ action: "fill-active-tab" });
+    const resp = await chrome.runtime.sendMessage({
+      action: "fill-active-tab",
+      username: selectedUsername,
+    });
     if (resp.error) throw resp.error;
     const { username } = resp.result;
     setResult("ok", `Filled for ${username}`);

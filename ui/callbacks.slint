@@ -74,6 +74,16 @@ export global Callbacks {
     // User tapped Cancel: discard the pending parsed records.
     callback import-cancel();
 
+    // -- Encrypted backup / restore ----------------------------------------
+    in-out property <string> backup-error: "";
+    in-out property <string> backup-success: "";
+    in-out property <int>    backup-restore-count: 0;
+
+    callback backup-export(string /* passphrase */);
+    callback backup-restore-pick(string /* passphrase */);
+    callback backup-restore-confirm();
+    callback backup-cancel();
+
     // Reveal password for a stored credential. Returns "" on failure.
     callback reveal-password(string /* uuid */) -> string;
 

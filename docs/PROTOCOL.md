@@ -63,7 +63,10 @@ Response = { "id": "...", "result": { ... } }
 | `ping` | - | `{ "pong": true }` |
 | `establish_session` | `{ "host_pubkey": "<hex>" }` | `{ "device_pubkey": "<hex>" }` |
 | `list_origins` | - | `{ "origins": ["https://..."] }` |
+| `list_credentials` | `{ "origin": "<strict>" }` | `{ "credentials": [{ "username": "...", "label": "...", "last_used_at": 0 }] }` |
 | `release_credential` | `{ "origin": "<strict>", "username_hint": "<opt>", "request_nonce": <u64> }` | `{ "username": "...", "password_sealed": "<hex>" }` |
+| `store_credential` | `{ "origin": "<strict>", "username": "...", "label": "<opt>", "password_sealed": "<hex>", "request_nonce": <u64> }` | `{ "action": "saved" \| "updated" \| "restored_and_updated" }` |
+| `generate_password` | `{ "origin": "<strict>", "username": "...", "label": "<opt>", "length": "<opt>", "charset": "<opt>", "request_nonce": <u64> }` | `{ "password_sealed": "<hex>", "action": "saved" \| "updated" \| "restored_and_updated" }` |
 | `cancel` | - | `{}` |
 
 ### Session
@@ -88,18 +91,36 @@ Response = { "id": "...", "result": { ... } }
 
 ### Origin coupling
 
-`release_credential.origin` is a strict origin string: scheme + host +
-explicit non-default port (no path, no query, no userinfo). Match is
-byte-for-byte after normalisation
-(`vaults_bridge_core::origin::Origin::parse`). v1 explicitly does NOT
-do fuzzy subdomain matching.
+Origins are strict origin strings: scheme + host + explicit non-default
+port (no path, no query, no userinfo). Match is byte-for-byte after
+normalisation (`vaults_bridge_core::origin::Origin::parse`). Public builds
+do exact-origin matching: a credential saved for `https://github.com` does
+not fill `https://gist.github.com` unless the user stores that origin too.
 
 The browser extension's background worker derives the requesting tab's
-origin via `sender.tab.url`, never trusting the content script. A
-request where `tab origin != params.origin` is dropped before the
-native USB call. See
-`browser-extension/background.js` (the security gate at the top of
-the message router).
+origin via `sender.tab.url` for content-script requests and from the
+active tab for popup requests. The page and content script never get to
+choose the origin sent over USB. See `extension/background.js` (the
+security gate at the top of the message router).
+
+If more than one credential matches an origin, hosts should call
+`list_credentials` and pass the selected `username` back as
+`release_credential.username_hint`. A release request without a username
+hint fails with `multiple_matches` when there is more than one matching
+credential, so the host cannot silently choose the wrong account.
+
+### Backups
+
+The keystore crate supports portable encrypted backups with
+`Keystore::export_backup(passphrase)` and
+`Keystore::open_backup(master, passphrase, backup)`, plus
+`Keystore::records_from_backup(passphrase, backup)` for an already-open app
+vault. Backup files are JSON envelopes containing a PBKDF2-HMAC-SHA256
+salt/iteration count and an AES-256-GCM ciphertext over the credential records.
+The backup passphrase is independent of the device seed, so a backup can restore
+to replacement hardware if the user kept the passphrase. The KeyOS UI stages
+restore records, shows the count, and replaces the current vault only after
+final user confirmation.
 
 ### Error codes
 
@@ -113,4 +134,6 @@ the message router).
 | 6 | `not_unlocked` | Device locked; user must enter PIN. |
 | 7 | `session_expired` | Session idle timer fired; re-handshake. |
 | 8 | `nonce_reused` | Replay rejected. |
+| 9 | `bad_policy` | Password generation policy is invalid. |
+| 10 | `multiple_matches` | More than one credential matches; choose an account. |
 | 99 | `internal` | Unexpected device-side failure. |

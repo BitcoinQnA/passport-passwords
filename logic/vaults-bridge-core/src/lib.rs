@@ -24,4 +24,6 @@ pub use engine::{Engine, EngineConfig, DEFAULT_IDLE_MS, SESSION_INFO};
 pub use origin::{origin_match_key, registrable_domain, Origin, OriginError};
 pub use record::CredentialRecord;
 pub use session::{Session, SessionError, SessionState};
-pub use store::{CredentialMatch, CredentialStore, ExistingCredential, StoreError};
+pub use store::{
+    CredentialMatch, CredentialStore, CredentialSummary, ExistingCredential, StoreError,
+};

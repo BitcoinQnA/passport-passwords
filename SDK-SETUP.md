@@ -136,5 +136,6 @@ bundle over USB without a full firmware rebuild.
 - Production USB VID/PID assignment for the vendor-class interface (see
   [`docs/PROTOCOL.md`](docs/PROTOCOL.md)); dev builds pair by device selection in
   the WebUSB picker.
-- Store flow, bulk import (1Password/Bitwarden/CSV), multi-account-per-origin
-  picker, and the Firefox port are explicitly out of PoC scope.
+- Hardware verification of portable encrypted backup export/restore over the
+  KeyOS file picker/writer flow.
+- Chrome Web Store packaging, privacy-policy copy, and Firefox port.

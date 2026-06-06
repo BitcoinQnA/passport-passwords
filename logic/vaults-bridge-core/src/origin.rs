@@ -12,11 +12,11 @@
 //!   - userinfo is rejected entirely (no `https://user:pass@host`)
 //!   - path / query / fragment are discarded
 //!
-//! Stored origins are still byte-equal — `https://github.com` and
-//! `https://www.github.com` are different `Origin`s. For *fill* lookup
-//! the engine hashes both stored and requested origins through
-//! [`origin_match_key`] so a record saved on `github.com` will fill on
-//! `gist.github.com`. Save/probe/upsert keep exact-origin semantics.
+//! Stored origins are byte-equal — `https://github.com` and
+//! `https://www.github.com` are different `Origin`s. Public release fill,
+//! save, probe, and upsert paths all keep exact-origin semantics. The
+//! [`origin_match_key`] helper remains available for future opt-in
+//! subdomain policies, but it is not the default release path.
 
 use thiserror::Error;
 use url::Url;
@@ -74,23 +74,84 @@ impl std::fmt::Display for Origin {
 /// site doesn't match.
 const MULTI_LABEL_SUFFIXES: &[&str] = &[
     // United Kingdom
-    "co.uk", "org.uk", "net.uk", "ac.uk", "gov.uk", "me.uk", "ltd.uk", "plc.uk", "nhs.uk", "sch.uk",
+    "co.uk",
+    "org.uk",
+    "net.uk",
+    "ac.uk",
+    "gov.uk",
+    "me.uk",
+    "ltd.uk",
+    "plc.uk",
+    "nhs.uk",
+    "sch.uk",
     // Australia / NZ
-    "com.au", "net.au", "org.au", "edu.au", "gov.au", "id.au", "asn.au",
-    "co.nz", "net.nz", "org.nz", "govt.nz", "ac.nz",
+    "com.au",
+    "net.au",
+    "org.au",
+    "edu.au",
+    "gov.au",
+    "id.au",
+    "asn.au",
+    "co.nz",
+    "net.nz",
+    "org.nz",
+    "govt.nz",
+    "ac.nz",
     // Japan / Korea
-    "co.jp", "ne.jp", "or.jp", "ac.jp", "ad.jp", "go.jp", "lg.jp",
-    "co.kr", "ne.kr", "or.kr", "go.kr", "ac.kr",
+    "co.jp",
+    "ne.jp",
+    "or.jp",
+    "ac.jp",
+    "ad.jp",
+    "go.jp",
+    "lg.jp",
+    "co.kr",
+    "ne.kr",
+    "or.kr",
+    "go.kr",
+    "ac.kr",
     // Greater China / SE Asia
-    "com.cn", "net.cn", "org.cn", "gov.cn", "edu.cn",
-    "com.hk", "net.hk", "org.hk", "edu.hk", "gov.hk",
-    "com.tw", "com.sg", "com.ph", "com.my", "com.vn", "co.th", "co.id",
+    "com.cn",
+    "net.cn",
+    "org.cn",
+    "gov.cn",
+    "edu.cn",
+    "com.hk",
+    "net.hk",
+    "org.hk",
+    "edu.hk",
+    "gov.hk",
+    "com.tw",
+    "com.sg",
+    "com.ph",
+    "com.my",
+    "com.vn",
+    "co.th",
+    "co.id",
     // Rest of world
-    "co.in", "net.in", "org.in", "ac.in", "gov.in",
-    "com.br", "net.br", "org.br", "gov.br", "edu.br",
-    "com.mx", "co.za", "co.il", "com.tr", "com.ar", "com.eg", "com.sa",
+    "co.in",
+    "net.in",
+    "org.in",
+    "ac.in",
+    "gov.in",
+    "com.br",
+    "net.br",
+    "org.br",
+    "gov.br",
+    "edu.br",
+    "com.mx",
+    "co.za",
+    "co.il",
+    "com.tr",
+    "com.ar",
+    "com.eg",
+    "com.sa",
     // PSL "private" suffixes users treat as separate sites.
-    "github.io", "gitlab.io", "pages.dev", "vercel.app", "netlify.app",
+    "github.io",
+    "gitlab.io",
+    "pages.dev",
+    "vercel.app",
+    "netlify.app",
 ];
 
 /// Return the registrable domain for `host`, or `None` if `host` is an
@@ -230,14 +291,23 @@ mod tests {
     fn registrable_domain_strips_subdomains() {
         assert_eq!(registrable_domain("gist.github.com"), Some("github.com"));
         assert_eq!(registrable_domain("a.b.c.example.com"), Some("example.com"));
-        assert_eq!(registrable_domain("www.foundation.xyz"), Some("foundation.xyz"));
+        assert_eq!(
+            registrable_domain("www.foundation.xyz"),
+            Some("foundation.xyz")
+        );
     }
 
     #[test]
     fn registrable_domain_handles_multi_label_suffixes() {
         assert_eq!(registrable_domain("example.co.uk"), Some("example.co.uk"));
-        assert_eq!(registrable_domain("foo.example.co.uk"), Some("example.co.uk"));
-        assert_eq!(registrable_domain("a.b.example.com.au"), Some("example.com.au"));
+        assert_eq!(
+            registrable_domain("foo.example.co.uk"),
+            Some("example.co.uk")
+        );
+        assert_eq!(
+            registrable_domain("a.b.example.com.au"),
+            Some("example.com.au")
+        );
         assert_eq!(registrable_domain("user.github.io"), Some("user.github.io"));
         assert_eq!(
             registrable_domain("project.user.github.io"),

@@ -20,8 +20,9 @@ pub mod message;
 
 pub use frame::{frame, FrameError, LineSplitter, MAX_LINE_BYTES};
 pub use message::{
-    CharsetHint, ErrorCode, ErrorPayload, EstablishSessionParams, EstablishSessionResult,
-    GeneratePasswordParams, GeneratePasswordResult, ListOriginsResult, Method,
-    ReleaseCredentialParams, ReleaseCredentialResult, Request, Response, ResponseBody, StoreAction,
-    StoreCredentialParams, StoreCredentialResult,
+    CharsetHint, CredentialSummary, ErrorCode, ErrorPayload, EstablishSessionParams,
+    EstablishSessionResult, GeneratePasswordParams, GeneratePasswordResult, ListCredentialsParams,
+    ListCredentialsResult, ListOriginsResult, Method, ReleaseCredentialParams,
+    ReleaseCredentialResult, Request, Response, ResponseBody, StoreAction, StoreCredentialParams,
+    StoreCredentialResult,
 };

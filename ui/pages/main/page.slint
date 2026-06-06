@@ -4,7 +4,7 @@
 import { Button, ButtonSection, CircleIcon, ContentSection, HeadingLg,
          IconButton, AppHeader, LineCard, Link, TextLg, TextMd, TextSm, BasePage,
          ShieldPage, OverlayMenu, PopupMenuItem, Editable, WrappedIcon,
-         PageBody, ScrollBody, SearchInput, Modal, ErrorModal } from "@ui/widgets.slint";
+         PageBody, ScrollBody, SearchInput, Modal, ErrorModal, TitledInput } from "@ui/widgets.slint";
 import { CardPageVersion, EditPageVersion } from "@ui/pages.slint";
 import { Importance, Palette, Size, CardColor, Utils } from "@ui/theme.slint";
 import { Callbacks } from "../../callbacks.slint";
@@ -71,6 +71,11 @@ export component MainPage inherits Rectangle {
     private property <bool> is-menu-open: false;
     private property <bool> edit-mode: false;
     private property <bool> archive-view: props.version == CardPageVersion.archive;
+    private property <bool> show-backup-export: false;
+    private property <bool> show-backup-restore: false;
+    private property <string> backup-passphrase: "";
+    private property <string> backup-passphrase-confirm: "";
+    private property <string> backup-passphrase-message: "";
 
     function go-add() {
         Callbacks.editing-uuid = "";
@@ -82,6 +87,19 @@ export component MainPage inherits Rectangle {
         Callbacks.editing-archived = false;
         Callbacks.editing-error = "";
         Navigate.edit({ version: EditPageVersion.add }, { });
+    }
+
+    function clear-backup-entry() {
+        backup-passphrase = "";
+        backup-passphrase-confirm = "";
+        backup-passphrase-message = "";
+    }
+
+    function clear-backup-results() {
+        Callbacks.backup-error = "";
+        Callbacks.backup-success = "";
+        Callbacks.backup-restore-count = 0;
+        Callbacks.backup-cancel();
     }
 
     function start-editing(entry: StoredCredential, version: EditPageVersion) {
@@ -283,6 +301,28 @@ export component MainPage inherits Rectangle {
         }
 
         PopupMenuItem {
+            label: "Export backup";
+            icon: "export";
+            clicked => {
+                is-menu-open = false;
+                clear-backup-results();
+                clear-backup-entry();
+                show-backup-export = true;
+            }
+        }
+
+        PopupMenuItem {
+            label: "Restore backup";
+            icon: "import";
+            clicked => {
+                is-menu-open = false;
+                clear-backup-results();
+                clear-backup-entry();
+                show-backup-restore = true;
+            }
+        }
+
+        PopupMenuItem {
             label: "Archive";
             icon: "archive";
             last: true;
@@ -295,6 +335,154 @@ export component MainPage inherits Rectangle {
         }
 
         touched-off => { is-menu-open = false; }
+    }
+
+    // ---- Backup flow modals --------------------------------------------
+    if show-backup-export: Modal {
+        icon: "export";
+        icon-color: Palette.content-brand;
+        title: "Export encrypted backup";
+        text: "Choose a passphrase for this backup. You will need it to restore passwords on another Passport.";
+
+        TitledInput {
+            title: "Passphrase";
+            placeholder: "At least 12 characters";
+            text: backup-passphrase;
+            input-type: InputType.password;
+            show-password: false;
+            has-notice: backup-passphrase-message != "";
+            message: backup-passphrase-message;
+            edited(text) => {
+                backup-passphrase = text;
+                backup-passphrase-message = "";
+            }
+        }
+
+        TitledInput {
+            title: "Confirm passphrase";
+            placeholder: "Repeat passphrase";
+            text: backup-passphrase-confirm;
+            input-type: InputType.password;
+            show-password: false;
+            has-notice: backup-passphrase != "" && backup-passphrase-confirm != "" && backup-passphrase != backup-passphrase-confirm;
+            message: "Passphrases do not match.";
+            edited(text) => {
+                backup-passphrase-confirm = text;
+            }
+        }
+
+        Button {
+            icon: "";
+            label: "Export backup";
+            importance: Importance.primary;
+            enabled: backup-passphrase != "" && backup-passphrase == backup-passphrase-confirm;
+            clicked => {
+                if (Utils.string-length(backup-passphrase) < 12) {
+                    backup-passphrase-message = "Use at least 12 characters.";
+                } else {
+                    Callbacks.backup-export(backup-passphrase);
+                    clear-backup-entry();
+                    show-backup-export = false;
+                }
+            }
+        }
+
+        Button {
+            icon: "";
+            label: "Cancel";
+            importance: Importance.tertiary;
+            clicked => {
+                clear-backup-entry();
+                show-backup-export = false;
+            }
+        }
+    }
+
+    if show-backup-restore: Modal {
+        icon: "import";
+        icon-color: Palette.content-brand;
+        title: "Restore encrypted backup";
+        text: "Enter the backup passphrase, then choose the backup file. You will review before anything is replaced.";
+
+        TitledInput {
+            title: "Passphrase";
+            placeholder: "Backup passphrase";
+            text: backup-passphrase;
+            input-type: InputType.password;
+            show-password: false;
+            edited(text) => {
+                backup-passphrase = text;
+            }
+        }
+
+        Button {
+            icon: "";
+            label: "Choose backup";
+            importance: Importance.primary;
+            enabled: backup-passphrase != "";
+            clicked => {
+                Callbacks.backup-restore-pick(backup-passphrase);
+                clear-backup-entry();
+                show-backup-restore = false;
+            }
+        }
+
+        Button {
+            icon: "";
+            label: "Cancel";
+            importance: Importance.tertiary;
+            clicked => {
+                clear-backup-entry();
+                show-backup-restore = false;
+            }
+        }
+    }
+
+    if Callbacks.backup-restore-count > 0: Modal {
+        icon: "alert";
+        icon-color: Palette.content-negative;
+        title: "Restore backup?";
+        text: "This backup contains " + Callbacks.backup-restore-count + " passwords. Restoring replaces the passwords currently on this device.";
+
+        Button {
+            icon: "";
+            label: "Cancel";
+            importance: Importance.secondary;
+            clicked => {
+                Callbacks.backup-restore-count = 0;
+                Callbacks.backup-cancel();
+            }
+        }
+
+        Button {
+            icon: "";
+            label: "Restore backup";
+            importance: Importance.negative;
+            clicked => {
+                Callbacks.backup-restore-confirm();
+            }
+        }
+    }
+
+    if Callbacks.backup-error != "": ErrorModal {
+        icon: "alert";
+        title: "Backup failed";
+        text: Callbacks.backup-error;
+        confirm-button-label: "Dismiss";
+        confirm-clicked => {
+            Callbacks.backup-error = "";
+        }
+    }
+
+    if Callbacks.backup-success != "": ErrorModal {
+        icon: "check";
+        icon-color: Palette.content-positive;
+        title: "Backup complete";
+        text: Callbacks.backup-success;
+        confirm-button-label: "OK";
+        confirm-clicked => {
+            Callbacks.backup-success = "";
+        }
     }
 
     // ---- Import flow modals --------------------------------------------

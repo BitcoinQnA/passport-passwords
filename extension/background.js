@@ -35,8 +35,8 @@ let sessionKey = null;
 let requestNonce = 0;
 
 async function loadConfig() {
-  const cfg = await chrome.storage.local.get(["transportKind", "wsServerUrl"]);
-  transportKind = cfg.transportKind === "ws" ? "ws" : "webusb";
+  const cfg = await chrome.storage.local.get(["transportKind", "wsServerUrl", "developerMode"]);
+  transportKind = cfg.developerMode && cfg.transportKind === "ws" ? "ws" : "webusb";
   const candidate = cfg.wsServerUrl || DEFAULT_WS;
   // Hard-gate the simulator transport to loopback. A bug or compromised
   // options page could otherwise repoint at a remote attacker.
@@ -70,6 +70,10 @@ chrome.storage.onChanged.addListener((changes, area) => {
   if (area !== "local") return;
   if (changes.transportKind) {
     transportKind = changes.transportKind.newValue;
+    resetSession();
+  }
+  if (changes.developerMode) {
+    transportKind = changes.developerMode.newValue ? transportKind : "webusb";
     resetSession();
   }
   if (changes.wsServerUrl) wsServerUrl = changes.wsServerUrl.newValue;
@@ -284,6 +288,17 @@ async function activeTab() {
   return { tab, origin: url.origin };
 }
 
+function senderOrigin(sender) {
+  if (sender.frameId !== 0) {
+    throw { code: 1, message: "top frame only" };
+  }
+  const tabOrigin = sender.tab?.url ? new URL(sender.tab.url).origin : null;
+  if (!tabOrigin) {
+    throw { code: 1, message: "no tab origin" };
+  }
+  return tabOrigin;
+}
+
 async function readFormFromTab(tabId) {
   return await chrome.tabs.sendMessage(tabId, { kind: "read-form" });
 }
@@ -316,13 +331,32 @@ async function saveActiveTab(suppliedUsername) {
   return { origin, username, action: result.action };
 }
 
-async function fillActiveTab() {
+async function listCredentialsForOrigin(origin) {
+  await ensureSession();
+  const result = await rpc("list_credentials", { origin });
+  const credentials = Array.isArray(result?.credentials) ? result.credentials : [];
+  return credentials.map((c) => ({
+    username: String(c.username || ""),
+    label: String(c.label || ""),
+    last_used_at: Number(c.last_used_at || 0),
+  })).filter((c) => c.username);
+}
+
+async function listActiveCredentials() {
+  const { origin } = await activeTab();
+  const credentials = await listCredentialsForOrigin(origin);
+  return { origin, credentials };
+}
+
+async function fillActiveTab(usernameHint) {
   const { tab, origin } = await activeTab();
   await ensureSession();
-  const result = await rpc("release_credential", {
+  const params = {
     origin,
     request_nonce: ++requestNonce,
-  });
+  };
+  if (usernameHint) params.username_hint = usernameHint;
+  const result = await rpc("release_credential", params);
   const password = await unsealPassword(result.password_sealed);
   await fillFormInTab(tab.id, { username: result.username, password });
   return { origin, username: result.username };
@@ -371,7 +405,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (
     msg.action === "save-active-tab" ||
     msg.action === "generate-active-tab" ||
-    msg.action === "fill-active-tab"
+    msg.action === "fill-active-tab" ||
+    msg.action === "list-active-credentials"
   ) {
     if (!fromExtensionPage) return false;
     (async () => {
@@ -380,8 +415,49 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         let result;
         if (msg.action === "save-active-tab") result = await saveActiveTab(msg.username);
         else if (msg.action === "generate-active-tab") result = await generateActiveTab(msg.username);
-        else result = await fillActiveTab();
+        else if (msg.action === "list-active-credentials") result = await listActiveCredentials();
+        else result = await fillActiveTab(msg.username);
         sendResponse({ result });
+      } catch (e) {
+        if (e?.code === 7) resetSession();
+        sendResponse({ error: sanitizeError(e) });
+      }
+    })();
+    return true;
+  }
+
+  if (msg.action === "list-from-content") {
+    if (!fromContentScript) return false;
+    (async () => {
+      try {
+        await loadConfig();
+        const tabOrigin = senderOrigin(sender);
+        const credentials = await listCredentialsForOrigin(tabOrigin);
+        sendResponse({ result: { origin: tabOrigin, credentials } });
+      } catch (e) {
+        if (e?.code === 7) resetSession();
+        sendResponse({ error: sanitizeError(e) });
+      }
+    })();
+    return true;
+  }
+
+  if (msg.action === "release-from-content") {
+    if (!fromContentScript) return false;
+    (async () => {
+      try {
+        await loadConfig();
+        const tabOrigin = senderOrigin(sender);
+        const username = (msg.username || "").trim();
+        await ensureSession();
+        const params = {
+          origin: tabOrigin,
+          request_nonce: ++requestNonce,
+        };
+        if (username) params.username_hint = username;
+        const result = await rpc("release_credential", params);
+        const password = await unsealPassword(result.password_sealed);
+        sendResponse({ result: { username: result.username, password } });
       } catch (e) {
         if (e?.code === 7) resetSession();
         sendResponse({ error: sanitizeError(e) });
@@ -396,15 +472,6 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   // a tab can't impersonate another.
   if (msg.action === "save-from-content") {
     if (!fromContentScript) return false;
-    if (sender.frameId !== 0) {
-      sendResponse({ error: { code: 1, message: "top frame only" } });
-      return false;
-    }
-    const tabOrigin = sender.tab?.url ? new URL(sender.tab.url).origin : null;
-    if (!tabOrigin) {
-      sendResponse({ error: { code: 1, message: "no tab origin" } });
-      return false;
-    }
     const username = (msg.username || "").trim();
     const password = msg.password || "";
     if (!username || !password) {
@@ -414,6 +481,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     (async () => {
       try {
         await loadConfig();
+        const tabOrigin = senderOrigin(sender);
         await ensureSession();
         const sealed = await sealPassword(password);
         const result = await rpc("store_credential", {
@@ -459,18 +527,9 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           sendResponse({ error: { code: 1, message: "content script only" } });
           return;
         }
-        if (sender.frameId !== 0) {
-          sendResponse({ error: { code: 1, message: "top frame only" } });
-          return;
-        }
-        const tabOrigin = sender.tab?.url
-          ? new URL(sender.tab.url).origin
-          : null;
-        if (!tabOrigin) {
-          sendResponse({ error: { code: 1, message: "no tab origin" } });
-          return;
-        }
+        const tabOrigin = senderOrigin(sender);
         params.origin = tabOrigin;
+        if (msg.username_hint) params.username_hint = String(msg.username_hint);
         await ensureSession();
         params.request_nonce = ++requestNonce;
       }

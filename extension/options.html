@@ -48,9 +48,17 @@ SPDX-License-Identifier: GPL-3.0-or-later
 
       <section class="card">
         <div class="card-head">
-          <h2>Transport</h2>
-          <p class="muted">Production talks to the device over WebUSB. Simulator mode points the extension at a hosted-mode WebSocket for development.</p>
+          <h2>Developer tools</h2>
+          <p class="muted">Production talks to Passport Prime over WebUSB. Simulator controls stay hidden unless developer mode is enabled.</p>
         </div>
+        <label class="card-row toggle-row">
+          <span>
+            <span class="label">Developer mode</span>
+            <span class="muted small">Show simulator transport settings for local hosted-mode testing.</span>
+          </span>
+          <input type="checkbox" id="developer-mode" />
+        </label>
+        <div id="transport-dev-controls" class="hidden">
         <label class="card-row toggle-row">
           <span>
             <span class="label">Simulator mode</span>
@@ -64,6 +72,7 @@ SPDX-License-Identifier: GPL-3.0-or-later
             <span class="muted small">Only used when simulator mode is on.</span>
           </span>
           <input type="text" id="ws-url" />
+        </div>
         </div>
       </section>
     </main>

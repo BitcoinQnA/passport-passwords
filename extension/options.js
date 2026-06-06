@@ -54,11 +54,26 @@ $("forget").addEventListener("click", async () => {
   }
 });
 
-const cfg = await chrome.storage.local.get(["transportKind", "wsServerUrl"]);
-$("sim-mode").checked = cfg.transportKind === "ws";
+const cfg = await chrome.storage.local.get(["transportKind", "wsServerUrl", "developerMode"]);
+$("developer-mode").checked = !!cfg.developerMode;
+$("transport-dev-controls").classList.toggle("hidden", !cfg.developerMode);
+$("sim-mode").checked = cfg.developerMode && cfg.transportKind === "ws";
 $("ws-url").value = cfg.wsServerUrl || "ws://127.0.0.1:9876";
 
+$("developer-mode").addEventListener("change", async (e) => {
+  const enabled = e.target.checked;
+  $("transport-dev-controls").classList.toggle("hidden", !enabled);
+  await chrome.storage.local.set({
+    developerMode: enabled,
+    transportKind: enabled && $("sim-mode").checked ? "ws" : "webusb",
+  });
+});
+
 $("sim-mode").addEventListener("change", async (e) => {
+  if (!$("developer-mode").checked) {
+    e.target.checked = false;
+    return;
+  }
   await chrome.storage.local.set({
     transportKind: e.target.checked ? "ws" : "webusb",
   });

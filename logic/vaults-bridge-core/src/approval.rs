@@ -67,6 +67,7 @@ impl std::fmt::Debug for ApprovalRequest {
 pub enum ApprovalDecision {
     Approve,
     Reject,
+    Timeout,
 }
 
 #[async_trait]

@@ -4,7 +4,7 @@
   "short_name": "Passwords",
   "version": "0.1.0",
   "description": "Autofill passwords from your Passport Prime over WebUSB. Credentials never leave the device without on-device approval.",
-  "permissions": ["storage", "offscreen", "activeTab", "scripting"],
+  "permissions": ["storage", "offscreen", "activeTab"],
   "host_permissions": ["http://*/*", "https://*/*"],
   "icons": {
     "16": "icons/icon-16.png",
