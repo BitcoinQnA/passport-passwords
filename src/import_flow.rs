@@ -36,9 +36,7 @@ pub type PendingRecords = Arc<Mutex<Option<Vec<ImportItem>>>>;
 #[cfg(target_os = "xous")]
 const MAX_NOTES_BYTES: usize = 2048;
 
-pub fn new_pending() -> PendingRecords {
-    Arc::new(Mutex::new(None))
-}
+pub fn new_pending() -> PendingRecords { Arc::new(Mutex::new(None)) }
 
 /// Hosted-simulator stub. The hosted target doesn't have access to the
 /// system file picker. Surface a friendly error instead of failing
@@ -46,8 +44,7 @@ pub fn new_pending() -> PendingRecords {
 #[cfg(not(target_os = "xous"))]
 pub fn pick_and_parse(_pending: &PendingRecords, ui_weak: &Weak<AppWindow>) {
     if let Some(ui) = ui_weak.upgrade() {
-        ui.global::<Callbacks>()
-            .set_import_error("File import is only available on hardware.".into());
+        ui.global::<Callbacks>().set_import_error("File import is only available on hardware.".into());
     }
 }
 
@@ -178,10 +175,7 @@ pub fn pick_and_parse(pending: &PendingRecords, ui_weak: &Weak<AppWindow>) {
 }
 
 #[cfg(target_os = "xous")]
-fn read_file_bytes(
-    path: &str,
-    location: slint_keyos_platform::fs::Location,
-) -> Result<Vec<u8>, String> {
+fn read_file_bytes(path: &str, location: slint_keyos_platform::fs::Location) -> Result<Vec<u8>, String> {
     use std::io::Read;
 
     use slint_keyos_platform::fs::{FileSystem, OpenFlags};
@@ -190,19 +184,10 @@ fn read_file_bytes(
 
     let fs: FileSystem<FileSystemPermissions> = FileSystem::default();
     let mut file = fs
-        .open_file(
-            path.to_string(),
-            location,
-            OpenFlags {
-                read: true,
-                write: false,
-                create: false,
-            },
-        )
+        .open_file(path.to_string(), location, OpenFlags { read: true, write: false, create: false })
         .map_err(|e| format!("open: {e:?}"))?;
     let mut buf = Vec::new();
-    file.read_to_end(&mut buf)
-        .map_err(|e| format!("read: {e:?}"))?;
+    file.read_to_end(&mut buf).map_err(|e| format!("read: {e:?}"))?;
     Ok(buf)
 }
 
@@ -215,9 +200,7 @@ pub fn policy_from_int(p: i32) -> ImportPolicy {
     }
 }
 
-pub fn cancel(pending: &PendingRecords) {
-    *pending.lock().unwrap() = None;
-}
+pub fn cancel(pending: &PendingRecords) { *pending.lock().unwrap() = None; }
 
 #[cfg(target_os = "xous")]
 fn set_error(ui_weak: &Weak<AppWindow>, msg: &str) {

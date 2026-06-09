@@ -16,9 +16,7 @@ template = ["gui-app", "fs-generic"]
 ]
 "os/usbdev" = [
     "RegisterCapability",
-    "RegisterSetupResponder",
     "RegisterInterface",
-    "NumInterfaces",
     "ReadEndpoint",
     "WriteEndpoint",
     "SetEndpointStalled",

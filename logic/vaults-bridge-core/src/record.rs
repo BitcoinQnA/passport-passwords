@@ -41,9 +41,7 @@ pub struct CredentialRecord {
     pub last_used_at: u64,
 }
 
-fn default_color() -> i32 {
-    0
-}
+fn default_color() -> i32 { 0 }
 
 impl CredentialRecord {
     pub fn new(origin: String, username: String, password: String) -> Self {
@@ -93,10 +91,7 @@ impl std::fmt::Debug for CredentialRecord {
 }
 
 fn now_secs() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0)
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0)
 }
 
 #[cfg(test)]
@@ -105,11 +100,8 @@ mod tests {
 
     #[test]
     fn fields_round_trip_through_serde() {
-        let mut r = CredentialRecord::new(
-            "https://github.com".into(),
-            "qna@foundation.xyz".into(),
-            "hunter2".into(),
-        );
+        let mut r =
+            CredentialRecord::new("https://github.com".into(), "qna@foundation.xyz".into(), "hunter2".into());
         r.label = "GitHub".into();
         r.color = 5;
         r.archived = false;

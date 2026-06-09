@@ -3,8 +3,9 @@
 
 //! Approval channel between the protocol engine and an out-of-band UI.
 
-use async_trait::async_trait;
 use std::sync::Arc;
+
+use async_trait::async_trait;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ApprovalAction {
@@ -79,9 +80,7 @@ pub trait Approver: Send + Sync {
     /// The protocol engine exposes `cancel` as a best-effort escape hatch
     /// for hosts that tear down a request while the device is showing an
     /// approval card. Stateless approvers can keep the default no-op.
-    fn cancel_pending(&self) -> bool {
-        false
-    }
+    fn cancel_pending(&self) -> bool { false }
 }
 
 pub type ArcApprover = Arc<dyn Approver>;
@@ -91,9 +90,7 @@ pub struct AutoApprove;
 
 #[async_trait]
 impl Approver for AutoApprove {
-    async fn request(&self, _req: ApprovalRequest) -> ApprovalDecision {
-        ApprovalDecision::Approve
-    }
+    async fn request(&self, _req: ApprovalRequest) -> ApprovalDecision { ApprovalDecision::Approve }
 }
 
 /// Test/sim helper: always reject.
@@ -101,7 +98,5 @@ pub struct AutoReject;
 
 #[async_trait]
 impl Approver for AutoReject {
-    async fn request(&self, _req: ApprovalRequest) -> ApprovalDecision {
-        ApprovalDecision::Reject
-    }
+    async fn request(&self, _req: ApprovalRequest) -> ApprovalDecision { ApprovalDecision::Reject }
 }

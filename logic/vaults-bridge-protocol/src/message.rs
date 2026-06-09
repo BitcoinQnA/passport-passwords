@@ -150,18 +150,10 @@ pub struct CharsetHint {
 }
 
 impl Default for CharsetHint {
-    fn default() -> Self {
-        Self {
-            letters: true,
-            digits: true,
-            symbols: true,
-        }
-    }
+    fn default() -> Self { Self { letters: true, digits: true, symbols: true } }
 }
 
-fn default_true() -> bool {
-    true
-}
+fn default_true() -> bool { true }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct GeneratePasswordResult {
@@ -223,10 +215,7 @@ mod tests {
 
     #[test]
     fn round_trip_ping_request() {
-        let req = Request {
-            id: "1".into(),
-            method: Method::Ping,
-        };
+        let req = Request { id: "1".into(), method: Method::Ping };
         let s = serde_json::to_string(&req).unwrap();
         let back: Request = serde_json::from_str(&s).unwrap();
         assert_eq!(req, back);
@@ -251,9 +240,7 @@ mod tests {
     fn round_trip_list_credentials() {
         let req = Request {
             id: "lc1".into(),
-            method: Method::ListCredentials(ListCredentialsParams {
-                origin: "https://example.com".into(),
-            }),
+            method: Method::ListCredentials(ListCredentialsParams { origin: "https://example.com".into() }),
         };
         let back: Request = serde_json::from_str(&serde_json::to_string(&req).unwrap()).unwrap();
         assert_eq!(req, back);
@@ -284,11 +271,7 @@ mod tests {
                 username: "alice".into(),
                 label: None,
                 length: Some(32),
-                charset: Some(CharsetHint {
-                    letters: true,
-                    digits: true,
-                    symbols: false,
-                }),
+                charset: Some(CharsetHint { letters: true, digits: true, symbols: false }),
                 request_nonce: 9,
             }),
         };

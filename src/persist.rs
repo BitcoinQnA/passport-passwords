@@ -39,9 +39,7 @@ mod imp {
             Self { backing }
         }
 
-        pub fn bytes(&self) -> &[u8] {
-            self.backing.as_slice()
-        }
+        pub fn bytes(&self) -> &[u8] { self.backing.as_slice() }
 
         /// Replace the on-disk blob. FileBacked's guard pattern writes
         /// immediately when the guard drops, atomically.
@@ -76,18 +74,14 @@ mod imp {
     const KEYS_FILE: &str = "passwords.bin";
 
     fn data_dir() -> PathBuf {
-        dirs::home_dir()
-            .map(|h| h.join(DATA_SUBDIR))
-            .unwrap_or_else(|| {
-                let mut p = std::env::temp_dir();
-                p.push(DATA_SUBDIR);
-                p
-            })
+        dirs::home_dir().map(|h| h.join(DATA_SUBDIR)).unwrap_or_else(|| {
+            let mut p = std::env::temp_dir();
+            p.push(DATA_SUBDIR);
+            p
+        })
     }
 
-    fn keys_path() -> PathBuf {
-        data_dir().join(KEYS_FILE)
-    }
+    fn keys_path() -> PathBuf { data_dir().join(KEYS_FILE) }
 
     pub struct KeystoreStore;
 

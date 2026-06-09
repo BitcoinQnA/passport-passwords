@@ -4,10 +4,8 @@
 //! Vaults Bridge wire protocol.
 //!
 //! Two layers live in this crate:
-//!   - [`message`] JSON request/response types exchanged between the browser
-//!     extension and the device.
-//!   - [`frame`]   64-byte interrupt-endpoint chunking and reassembly for
-//!     the JSON blobs.
+//!   - [`message`] JSON request/response types exchanged between the browser extension and the device.
+//!   - [`frame`]   64-byte interrupt-endpoint chunking and reassembly for the JSON blobs.
 //!
 //! Both layers are pure Rust with no platform dependencies. Wire shape
 //! mirrors `nostr-signer/protocol` (same framing, same envelope) so a
@@ -20,9 +18,8 @@ pub mod message;
 
 pub use frame::{frame, FrameError, LineSplitter, MAX_LINE_BYTES};
 pub use message::{
-    CharsetHint, CredentialSummary, ErrorCode, ErrorPayload, EstablishSessionParams,
-    EstablishSessionResult, GeneratePasswordParams, GeneratePasswordResult, ListCredentialsParams,
-    ListCredentialsResult, ListOriginsResult, Method, ReleaseCredentialParams,
-    ReleaseCredentialResult, Request, Response, ResponseBody, StoreAction, StoreCredentialParams,
-    StoreCredentialResult,
+    CharsetHint, CredentialSummary, ErrorCode, ErrorPayload, EstablishSessionParams, EstablishSessionResult,
+    GeneratePasswordParams, GeneratePasswordResult, ListCredentialsParams, ListCredentialsResult,
+    ListOriginsResult, Method, ReleaseCredentialParams, ReleaseCredentialResult, Request, Response,
+    ResponseBody, StoreAction, StoreCredentialParams, StoreCredentialResult,
 };

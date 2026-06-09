@@ -3,20 +3,20 @@
 
 [package]
 name = "vaults-bridge-keystore"
-version.workspace = true
-edition.workspace = true
-license.workspace = true
+version = "0.1.0"
+edition = "2021"
+license = "GPL-3.0-or-later"
 
 [dependencies]
-vaults-bridge-core.workspace = true
-serde = { workspace = true, features = ["std"] }
-serde_json = { workspace = true, features = ["std"] }
-thiserror.workspace = true
-aes-gcm = { workspace = true, features = ["std"] }
-hkdf = { workspace = true, features = ["std"] }
-hmac = { workspace = true, features = ["std"] }
-sha2 = { workspace = true, features = ["std"] }
-zeroize.workspace = true
-rand_core = { workspace = true, features = ["std", "getrandom"] }
-hex = { workspace = true, features = ["std"] }
-uuid = { workspace = true, features = ["std"] }
+vaults-bridge-core = { path = "../vaults-bridge-core" }
+serde = { version = "1", default-features = false, features = ["derive", "alloc", "std"] }
+serde_json = { version = "1", default-features = false, features = ["alloc", "std"] }
+thiserror = "1"
+aes-gcm = { version = "0.10", default-features = false, features = ["alloc", "aes", "std"] }
+hkdf = { version = "0.12", default-features = false, features = ["std"] }
+hmac = { version = "0.12", default-features = false, features = ["std"] }
+sha2 = { version = "0.10", default-features = false, features = ["std"] }
+zeroize = { version = "1.7", features = ["derive"] }
+rand_core = { version = "0.6", default-features = false, features = ["std", "getrandom"] }
+hex = { version = "0.4", default-features = false, features = ["alloc", "std"] }
+uuid = { version = "1", default-features = false, features = ["v4", "serde", "std"] }

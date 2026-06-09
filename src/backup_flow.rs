@@ -23,9 +23,7 @@ const MAX_BACKUP_BYTES: usize = 4 * 1024 * 1024;
 
 pub type PendingRestore = Arc<Mutex<Option<Vec<CredentialRecord>>>>;
 
-pub fn new_pending_restore() -> PendingRestore {
-    Arc::new(Mutex::new(None))
-}
+pub fn new_pending_restore() -> PendingRestore { Arc::new(Mutex::new(None)) }
 
 #[cfg(not(target_os = "xous"))]
 pub fn export_encrypted_backup(
@@ -43,10 +41,7 @@ pub fn export_encrypted_backup(
     ui_weak: &Weak<AppWindow>,
 ) {
     if passphrase.len() < 12 {
-        set_error(
-            ui_weak,
-            "Use a backup passphrase of at least 12 characters.",
-        );
+        set_error(ui_weak, "Use a backup passphrase of at least 12 characters.");
         return;
     }
 
@@ -74,18 +69,11 @@ pub fn export_encrypted_backup(
         set_error(ui_weak, "Could not write the backup file.");
         return;
     }
-    set_success(
-        ui_weak,
-        &format!("Encrypted backup saved to {path}. Keep its passphrase safe."),
-    );
+    set_success(ui_weak, &format!("Encrypted backup saved to {path}. Keep its passphrase safe."));
 }
 
 #[cfg(not(target_os = "xous"))]
-pub fn pick_restore_backup(
-    _pending: &PendingRestore,
-    _passphrase: &[u8],
-    ui_weak: &Weak<AppWindow>,
-) {
+pub fn pick_restore_backup(_pending: &PendingRestore, _passphrase: &[u8], ui_weak: &Weak<AppWindow>) {
     set_error(ui_weak, "Backup restore is only available on hardware.");
 }
 
@@ -142,9 +130,7 @@ pub fn pick_restore_backup(pending: &PendingRestore, passphrase: &[u8], ui_weak:
     }
 }
 
-pub fn cancel_restore(pending: &PendingRestore) {
-    *pending.lock().unwrap() = None;
-}
+pub fn cancel_restore(pending: &PendingRestore) { *pending.lock().unwrap() = None; }
 
 fn set_error(ui_weak: &Weak<AppWindow>, msg: &str) {
     if let Some(ui) = ui_weak.upgrade() {
@@ -224,11 +210,7 @@ fn map_location(
 }
 
 #[cfg(target_os = "xous")]
-fn write_file(
-    path: &str,
-    location: slint_keyos_platform::fs::Location,
-    bytes: &[u8],
-) -> Result<(), String> {
+fn write_file(path: &str, location: slint_keyos_platform::fs::Location, bytes: &[u8]) -> Result<(), String> {
     use std::io::Write;
 
     use slint_keyos_platform::fs::{FileSystem, OpenFlags};
@@ -237,15 +219,7 @@ fn write_file(
 
     let fs: FileSystem<FileSystemPermissions> = FileSystem::default();
     let mut file = fs
-        .open_file(
-            path.to_string(),
-            location,
-            OpenFlags {
-                read: false,
-                write: true,
-                create: true,
-            },
-        )
+        .open_file(path.to_string(), location, OpenFlags { read: false, write: true, create: true })
         .map_err(|e| format!("open: {e:?}"))?;
     file.write_all(bytes).map_err(|e| format!("write: {e:?}"))?;
     file.flush().map_err(|e| format!("flush: {e:?}"))?;
@@ -262,19 +236,10 @@ fn read_file(path: &str, location: slint_keyos_platform::fs::Location) -> Result
 
     let fs: FileSystem<FileSystemPermissions> = FileSystem::default();
     let mut file = fs
-        .open_file(
-            path.to_string(),
-            location,
-            OpenFlags {
-                read: true,
-                write: false,
-                create: false,
-            },
-        )
+        .open_file(path.to_string(), location, OpenFlags { read: true, write: false, create: false })
         .map_err(|e| format!("open: {e:?}"))?;
     let mut buf = Vec::new();
-    file.read_to_end(&mut buf)
-        .map_err(|e| format!("read: {e:?}"))?;
+    file.read_to_end(&mut buf).map_err(|e| format!("read: {e:?}"))?;
     Ok(buf)
 }
 

@@ -9,8 +9,8 @@
 //!   - [`record`]   credential record schema (no I/O)
 //!   - [`store`]    `CredentialStore` trait the engine consumes
 //!   - [`approval`] async approver trait + auto sims
-//!   - [`engine`]   protocol dispatcher (ping, establish_session,
-//!                  list_origins, release/store/generate, cancel)
+//!   - [`engine`]   protocol dispatcher (ping, establish_session, list_origins, release/store/generate,
+//!     cancel)
 
 pub mod approval;
 pub mod engine;
@@ -24,6 +24,4 @@ pub use engine::{Engine, EngineConfig, DEFAULT_IDLE_MS, SESSION_INFO};
 pub use origin::{origin_match_key, registrable_domain, Origin, OriginError};
 pub use record::CredentialRecord;
 pub use session::{Session, SessionError, SessionState};
-pub use store::{
-    CredentialMatch, CredentialStore, CredentialSummary, ExistingCredential, StoreError,
-};
+pub use store::{CredentialMatch, CredentialStore, CredentialSummary, ExistingCredential, StoreError};
