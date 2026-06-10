@@ -1,0 +1,74 @@
+# SPDX-FileCopyrightText: 2026 Foundation Devices, Inc. <hello@foundation.xyz>
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+# Foundation application configuration
+app-name = "gui-app-passwords"
+friendly-app-name = "Passwords"
+launcher-app-name = "Passwords"
+description = "Hardware-backed password manager for Passport Prime"
+icon = "resources/icon.svg"
+app-id = "0x50617373776f72647300000000000000"
+version = "0.1.0"
+min-keyos-version = "1.3.0"
+
+[publisher]
+name = "Foundation Devices, Inc."
+contact-email = "hello@foundation.xyz"
+support-url = "https://foundation.xyz"
+
+[permissions]
+"os/fs" = [
+    "OpenDirMessage",
+    "OpenFileMessage",
+    "CloseFile",
+    "CloseDir",
+    "CreateDirMessage",
+    "ReadFile",
+    "SeekFile",
+    "WriteFile",
+    "TruncateFile",
+    "SetLen",
+    "GetMetadata",
+    "NextEntry",
+    "Flush",
+    "FlushFs",
+    "Remove",
+    "Rename",
+    "AtomicCopy",
+    "AsyncRead",
+    "AsyncWrite",
+    "AsyncCopyBlock",
+    "SubscribeFilesystemEvent",
+    "MapFileMessage",
+    "GetAirlockReadAccess",
+    "GetUserReadAccess",
+    "GetUsbReadAccess",
+]
+"os/gui-server" = [
+    "RegisterAppMessage",
+    "RequestRedraw",
+    "AnimateNextFrame",
+    "SubmitFrame",
+    "UpdateKeyboard",
+    "HideKeyboard",
+    "ShowModal",
+]
+"os/settings" = [
+    "GetSystemTheme",
+    "SubscribeSystemTheme",
+    "GetDebugTouch",
+    "SubscribeDebugTouch",
+]
+"os/security" = [
+    "GetAppSeed",
+]
+"os/usbdev" = [
+    "RegisterCapability",
+    "RegisterInterface",
+    "ReadEndpoint",
+    "WriteEndpoint",
+    "SetEndpointStalled",
+    "IsDeviceEmulationEnabled",
+    "WaitForConnection",
+    "ResetController",
+]
