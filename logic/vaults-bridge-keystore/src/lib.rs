@@ -102,7 +102,12 @@ pub struct Keystore {
 }
 
 impl Keystore {
-    pub fn new(master: &[u8]) -> Self { Self { records: Vec::new(), key: derive_key(master) } }
+    pub fn new(master: &[u8]) -> Self {
+        Self {
+            records: Vec::new(),
+            key: derive_key(master),
+        }
+    }
 
     pub fn open(master: &[u8], sealed: &[u8]) -> Result<Self, KeystoreError> {
         let key = derive_key(master);
@@ -143,9 +148,16 @@ impl Keystore {
 
     /// Restore a portable backup into a new keystore under this device's
     /// master secret.
-    pub fn open_backup(master: &[u8], passphrase: &[u8], backup: &[u8]) -> Result<Self, KeystoreError> {
+    pub fn open_backup(
+        master: &[u8],
+        passphrase: &[u8],
+        backup: &[u8],
+    ) -> Result<Self, KeystoreError> {
         let records = Self::records_from_backup(passphrase, backup)?;
-        Ok(Self { records, key: derive_key(master) })
+        Ok(Self {
+            records,
+            key: derive_key(master),
+        })
     }
 
     /// Decrypt a portable backup into credential records. The caller can then
@@ -174,7 +186,8 @@ impl Keystore {
         if nonce.len() != 12 {
             return Err(KeystoreError::BackupMalformed);
         }
-        let ciphertext = hex::decode(file.ciphertext_hex).map_err(|_| KeystoreError::BackupMalformed)?;
+        let ciphertext =
+            hex::decode(file.ciphertext_hex).map_err(|_| KeystoreError::BackupMalformed)?;
         let key = derive_backup_key(passphrase, &salt, file.iterations)?;
         let mut sealed = Vec::with_capacity(nonce.len() + ciphertext.len());
         sealed.extend_from_slice(&nonce);
@@ -185,12 +198,18 @@ impl Keystore {
 
     /// Replace all records in this open keystore. The encryption key stays the
     /// current device key, so the next `seal()` writes a device-bound vault.
-    pub fn replace_records(&mut self, records: Vec<CredentialRecord>) { self.records = records; }
+    pub fn replace_records(&mut self, records: Vec<CredentialRecord>) {
+        self.records = records;
+    }
 
     /// Merge native backup records into this open keystore with the same
     /// conflict choices used by CSV import, but preserving native metadata
     /// (notes, colors, archive state, timestamps) from the backup records.
-    pub fn restore_many(&mut self, records: Vec<CredentialRecord>, policy: ImportPolicy) -> ImportSummary {
+    pub fn restore_many(
+        &mut self,
+        records: Vec<CredentialRecord>,
+        policy: ImportPolicy,
+    ) -> ImportSummary {
         let mut imported = 0usize;
         let mut skipped = 0usize;
         let mut replaced = 0usize;
@@ -225,20 +244,34 @@ impl Keystore {
             }
         }
 
-        ImportSummary { imported, skipped, replaced }
+        ImportSummary {
+            imported,
+            skipped,
+            replaced,
+        }
     }
 
-    pub fn records(&self) -> &[CredentialRecord] { &self.records }
+    pub fn records(&self) -> &[CredentialRecord] {
+        &self.records
+    }
 
     /// Clone the in-memory records so a caller can roll back a batch
     /// mutation if the subsequent encrypted persistence write fails.
-    pub fn snapshot(&self) -> Vec<CredentialRecord> { self.records.clone() }
+    pub fn snapshot(&self) -> Vec<CredentialRecord> {
+        self.records.clone()
+    }
 
-    pub fn restore_snapshot(&mut self, records: Vec<CredentialRecord>) { self.records = records; }
+    pub fn restore_snapshot(&mut self, records: Vec<CredentialRecord>) {
+        self.records = records;
+    }
 
-    pub fn add(&mut self, r: CredentialRecord) { self.records.push(r); }
+    pub fn add(&mut self, r: CredentialRecord) {
+        self.records.push(r);
+    }
 
-    pub fn get(&self, id: Uuid) -> Option<&CredentialRecord> { self.records.iter().find(|r| r.id == id) }
+    pub fn get(&self, id: Uuid) -> Option<&CredentialRecord> {
+        self.records.iter().find(|r| r.id == id)
+    }
 
     /// Update label, color, username, password (origin and id stay).
     pub fn edit(
@@ -249,7 +282,11 @@ impl Keystore {
         username: String,
         password: String,
     ) -> Result<(), KeystoreError> {
-        let rec = self.records.iter_mut().find(|r| r.id == id).ok_or(KeystoreError::NotFound)?;
+        let rec = self
+            .records
+            .iter_mut()
+            .find(|r| r.id == id)
+            .ok_or(KeystoreError::NotFound)?;
         rec.label = label;
         rec.color = color;
         rec.username = username;
@@ -258,13 +295,21 @@ impl Keystore {
     }
 
     pub fn set_archived(&mut self, id: Uuid, archived: bool) -> Result<(), KeystoreError> {
-        let rec = self.records.iter_mut().find(|r| r.id == id).ok_or(KeystoreError::NotFound)?;
+        let rec = self
+            .records
+            .iter_mut()
+            .find(|r| r.id == id)
+            .ok_or(KeystoreError::NotFound)?;
         rec.archived = archived;
         Ok(())
     }
 
     pub fn set_color(&mut self, id: Uuid, color: i32) -> Result<(), KeystoreError> {
-        let rec = self.records.iter_mut().find(|r| r.id == id).ok_or(KeystoreError::NotFound)?;
+        let rec = self
+            .records
+            .iter_mut()
+            .find(|r| r.id == id)
+            .ok_or(KeystoreError::NotFound)?;
         rec.color = color;
         Ok(())
     }
@@ -278,8 +323,10 @@ impl Keystore {
         let mut skipped = 0usize;
         let mut replaced = 0usize;
         for item in items {
-            let pos =
-                self.records.iter().position(|r| r.origin == item.origin && r.username == item.username);
+            let pos = self
+                .records
+                .iter()
+                .position(|r| r.origin == item.origin && r.username == item.username);
             match (pos, policy) {
                 (Some(_), ImportPolicy::Skip) => {
                     skipped += 1;
@@ -320,12 +367,20 @@ impl Keystore {
                 }
             }
         }
-        ImportSummary { imported, skipped, replaced }
+        ImportSummary {
+            imported,
+            skipped,
+            replaced,
+        }
     }
 
     /// Permanent delete; only allowed on archived records.
     pub fn delete_forever(&mut self, id: Uuid) -> Result<(), KeystoreError> {
-        let pos = self.records.iter().position(|r| r.id == id).ok_or(KeystoreError::NotFound)?;
+        let pos = self
+            .records
+            .iter()
+            .position(|r| r.id == id)
+            .ok_or(KeystoreError::NotFound)?;
         if !self.records[pos].archived {
             return Err(KeystoreError::NotArchived);
         }
@@ -333,9 +388,13 @@ impl Keystore {
         Ok(())
     }
 
-    pub fn live_count(&self) -> usize { self.records.iter().filter(|r| !r.archived).count() }
+    pub fn live_count(&self) -> usize {
+        self.records.iter().filter(|r| !r.archived).count()
+    }
 
-    pub fn archived_count(&self) -> usize { self.records.iter().filter(|r| r.archived).count() }
+    pub fn archived_count(&self) -> usize {
+        self.records.iter().filter(|r| r.archived).count()
+    }
 
     /// Records by origin, including archived (for UI display).
     pub fn find_by_origin_records(&self, origin: &str) -> Vec<&CredentialRecord> {
@@ -390,16 +449,27 @@ impl CredentialStore for Keystore {
         self.records
             .iter()
             .filter(|r| !r.archived && r.origin == origin)
-            .map(|r| CredentialMatch { username: r.username.clone(), password: r.password.clone() })
+            .map(|r| CredentialMatch {
+                username: r.username.clone(),
+                password: r.password.clone(),
+            })
             .collect()
     }
 
-    fn snapshot(&self) -> Self::Snapshot { self.snapshot() }
+    fn snapshot(&self) -> Self::Snapshot {
+        self.snapshot()
+    }
 
-    fn restore_snapshot(&mut self, snapshot: Self::Snapshot) { self.restore_snapshot(snapshot); }
+    fn restore_snapshot(&mut self, snapshot: Self::Snapshot) {
+        self.restore_snapshot(snapshot);
+    }
 
     fn probe(&self, origin: &str, username: &str) -> ExistingCredential {
-        match self.records.iter().find(|r| r.origin == origin && r.username == username) {
+        match self
+            .records
+            .iter()
+            .find(|r| r.origin == origin && r.username == username)
+        {
             None => ExistingCredential::None,
             Some(r) if r.archived => ExistingCredential::Archived,
             Some(_) => ExistingCredential::Live,
@@ -419,7 +489,11 @@ impl CredentialStore for Keystore {
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_secs())
             .unwrap_or(0);
-        if let Some(rec) = self.records.iter_mut().find(|r| r.origin == origin && r.username == username) {
+        if let Some(rec) = self
+            .records
+            .iter_mut()
+            .find(|r| r.origin == origin && r.username == username)
+        {
             rec.password = password;
             if let Some(l) = label {
                 rec.label = l;
@@ -439,17 +513,24 @@ impl CredentialStore for Keystore {
 }
 
 impl Drop for Keystore {
-    fn drop(&mut self) { self.key.zeroize(); }
+    fn drop(&mut self) {
+        self.key.zeroize();
+    }
 }
 
 fn derive_key(master: &[u8]) -> [u8; 32] {
     let hk = Hkdf::<Sha256>::new(None, master);
     let mut out = [0u8; 32];
-    hk.expand(KEY_INFO, &mut out).expect("32 bytes within HKDF output limit");
+    hk.expand(KEY_INFO, &mut out)
+        .expect("32 bytes within HKDF output limit");
     out
 }
 
-fn derive_backup_key(passphrase: &[u8], salt: &[u8], iterations: u32) -> Result<[u8; 32], KeystoreError> {
+fn derive_backup_key(
+    passphrase: &[u8],
+    salt: &[u8],
+    iterations: u32,
+) -> Result<[u8; 32], KeystoreError> {
     if iterations == 0 {
         return Err(KeystoreError::BackupMalformed);
     }
@@ -465,7 +546,8 @@ fn derive_backup_key(passphrase: &[u8], salt: &[u8], iterations: u32) -> Result<
 }
 
 fn hmac_sha256(key: &[u8], data: &[u8]) -> Result<[u8; 32], KeystoreError> {
-    let mut mac = <HmacSha256 as Mac>::new_from_slice(key).map_err(|_| KeystoreError::BackupMalformed)?;
+    let mut mac =
+        <HmacSha256 as Mac>::new_from_slice(key).map_err(|_| KeystoreError::BackupMalformed)?;
     mac.update(data);
     let bytes = mac.finalize().into_bytes();
     let mut out = [0u8; 32];
@@ -485,7 +567,9 @@ fn seal(key: &[u8; 32], plaintext: &[u8]) -> Result<Vec<u8>, KeystoreError> {
     let cipher = Aes256Gcm::new(key.into());
     let mut nonce = [0u8; 12];
     OsRng.fill_bytes(&mut nonce);
-    let ct = cipher.encrypt(Nonce::from_slice(&nonce), plaintext).map_err(|_| KeystoreError::SealFailed)?;
+    let ct = cipher
+        .encrypt(Nonce::from_slice(&nonce), plaintext)
+        .map_err(|_| KeystoreError::SealFailed)?;
     let mut out = Vec::with_capacity(12 + ct.len());
     out.extend_from_slice(&nonce);
     out.extend_from_slice(&ct);
@@ -498,7 +582,9 @@ fn unseal(key: &[u8; 32], blob: &[u8]) -> Result<Vec<u8>, KeystoreError> {
     }
     let (nonce, ct) = blob.split_at(12);
     let cipher = Aes256Gcm::new(key.into());
-    cipher.decrypt(Nonce::from_slice(nonce), ct).map_err(|_| KeystoreError::OpenFailed)
+    cipher
+        .decrypt(Nonce::from_slice(nonce), ct)
+        .map_err(|_| KeystoreError::OpenFailed)
 }
 
 #[cfg(test)]
@@ -509,8 +595,16 @@ mod tests {
     fn round_trip_records_through_seal_open() {
         let master = b"test-master-secret-32-bytes-long_";
         let mut ks = Keystore::new(master);
-        ks.add(CredentialRecord::new("https://github.com".into(), "qna".into(), "hunter2".into()));
-        ks.add(CredentialRecord::new("https://example.com".into(), "alice".into(), "p4ssw0rd".into()));
+        ks.add(CredentialRecord::new(
+            "https://github.com".into(),
+            "qna".into(),
+            "hunter2".into(),
+        ));
+        ks.add(CredentialRecord::new(
+            "https://example.com".into(),
+            "alice".into(),
+            "p4ssw0rd".into(),
+        ));
         let blob = ks.seal().unwrap();
         let ks2 = Keystore::open(master, &blob).unwrap();
         assert_eq!(ks2.records().len(), 2);
@@ -523,16 +617,28 @@ mod tests {
     #[test]
     fn fill_matches_exact_origin_only() {
         let mut ks = Keystore::new(b"test-master-secret-32-bytes-long_");
-        ks.add(CredentialRecord::new("https://github.com".into(), "qna".into(), "hunter2".into()));
+        ks.add(CredentialRecord::new(
+            "https://github.com".into(),
+            "qna".into(),
+            "hunter2".into(),
+        ));
 
         assert_eq!(ks.find_by_origin("https://github.com").len(), 1);
         assert_eq!(ks.find_by_origin("https://gist.github.com").len(), 0);
-        assert_eq!(ks.find_by_origin("https://api.deeply.nested.github.com").len(), 0);
+        assert_eq!(
+            ks.find_by_origin("https://api.deeply.nested.github.com")
+                .len(),
+            0
+        );
 
         // Different registrable domain -> no match.
         assert_eq!(ks.find_by_origin("https://example.com").len(), 0);
         // Suffix-injection attack -> no match.
-        assert_eq!(ks.find_by_origin("https://attacker.github.com.evil.com").len(), 0);
+        assert_eq!(
+            ks.find_by_origin("https://attacker.github.com.evil.com")
+                .len(),
+            0
+        );
         // Scheme mismatch -> no match.
         assert_eq!(ks.find_by_origin("http://github.com").len(), 0);
     }
@@ -540,8 +646,16 @@ mod tests {
     #[test]
     fn fill_keeps_port_distinction_for_ip_and_localhost() {
         let mut ks = Keystore::new(b"test-master-secret-32-bytes-long_");
-        ks.add(CredentialRecord::new("http://127.0.0.1:8000".into(), "qna".into(), "p".into()));
-        ks.add(CredentialRecord::new("http://localhost:3000".into(), "qna".into(), "p".into()));
+        ks.add(CredentialRecord::new(
+            "http://127.0.0.1:8000".into(),
+            "qna".into(),
+            "p".into(),
+        ));
+        ks.add(CredentialRecord::new(
+            "http://localhost:3000".into(),
+            "qna".into(),
+            "p".into(),
+        ));
 
         assert_eq!(ks.find_by_origin("http://127.0.0.1:8000").len(), 1);
         assert_eq!(ks.find_by_origin("http://127.0.0.1:9000").len(), 0);
@@ -574,7 +688,10 @@ mod tests {
         let r = CredentialRecord::new("https://x".into(), "u".into(), "p".into());
         let id = r.id;
         ks.add(r);
-        assert!(matches!(ks.delete_forever(id), Err(KeystoreError::NotArchived)));
+        assert!(matches!(
+            ks.delete_forever(id),
+            Err(KeystoreError::NotArchived)
+        ));
         ks.set_archived(id, true).unwrap();
         ks.delete_forever(id).unwrap();
         assert!(ks.records().is_empty());
@@ -583,7 +700,11 @@ mod tests {
     #[test]
     fn wrong_master_fails_to_open() {
         let mut ks = Keystore::new(b"correct-master");
-        ks.add(CredentialRecord::new("https://x".into(), "u".into(), "p".into()));
+        ks.add(CredentialRecord::new(
+            "https://x".into(),
+            "u".into(),
+            "p".into(),
+        ));
         let blob = ks.seal().unwrap();
         assert!(Keystore::open(b"wrong-master", &blob).is_err());
     }
@@ -591,7 +712,11 @@ mod tests {
     #[test]
     fn backup_round_trips_to_new_master() {
         let mut ks = Keystore::new(b"old-master");
-        ks.add(CredentialRecord::new("https://example.com".into(), "alice".into(), "p4ss".into()));
+        ks.add(CredentialRecord::new(
+            "https://example.com".into(),
+            "alice".into(),
+            "p4ss".into(),
+        ));
 
         let backup = ks.export_backup(b"correct horse battery staple").unwrap();
         let restored =
@@ -607,7 +732,11 @@ mod tests {
     #[test]
     fn backup_rejects_wrong_passphrase() {
         let mut ks = Keystore::new(b"old-master");
-        ks.add(CredentialRecord::new("https://example.com".into(), "alice".into(), "p4ss".into()));
+        ks.add(CredentialRecord::new(
+            "https://example.com".into(),
+            "alice".into(),
+            "p4ss".into(),
+        ));
 
         let backup = ks.export_backup(b"right").unwrap();
         assert!(Keystore::open_backup(b"new-master", b"wrong", &backup).is_err());
@@ -616,11 +745,19 @@ mod tests {
     #[test]
     fn backup_records_can_replace_existing_keystore() {
         let mut original = Keystore::new(b"old-master");
-        original.add(CredentialRecord::new("https://example.com".into(), "alice".into(), "p4ss".into()));
+        original.add(CredentialRecord::new(
+            "https://example.com".into(),
+            "alice".into(),
+            "p4ss".into(),
+        ));
         let backup = original.export_backup(b"passphrase").unwrap();
 
         let mut current = Keystore::new(b"current-master");
-        current.add(CredentialRecord::new("https://old.example".into(), "bob".into(), "old".into()));
+        current.add(CredentialRecord::new(
+            "https://old.example".into(),
+            "bob".into(),
+            "old".into(),
+        ));
         let records = Keystore::records_from_backup(b"passphrase", &backup).unwrap();
         current.replace_records(records);
 
@@ -633,13 +770,19 @@ mod tests {
 
     #[test]
     fn restore_many_skips_replaces_or_keeps_conflicts() {
-        let mut existing =
-            CredentialRecord::new("https://example.com".into(), "alice".into(), "old-password".into());
+        let mut existing = CredentialRecord::new(
+            "https://example.com".into(),
+            "alice".into(),
+            "old-password".into(),
+        );
         existing.label = "Existing".into();
         let existing_id = existing.id;
 
-        let mut restored =
-            CredentialRecord::new("https://example.com".into(), "alice".into(), "restored-password".into());
+        let mut restored = CredentialRecord::new(
+            "https://example.com".into(),
+            "alice".into(),
+            "restored-password".into(),
+        );
         restored.label = "Backup".into();
         restored.color = 4;
         restored.archived = true;
@@ -664,7 +807,10 @@ mod tests {
         assert_eq!(replaced.records()[0].label, "Backup");
         assert_eq!(replaced.records()[0].color, 4);
         assert!(replaced.records()[0].archived);
-        assert_eq!(replaced.records()[0].notes.as_deref(), Some("native metadata"));
+        assert_eq!(
+            replaced.records()[0].notes.as_deref(),
+            Some("native metadata")
+        );
         assert_eq!(replaced.records()[0].created_at, 123);
         assert_eq!(replaced.records()[0].last_used_at, 456);
 

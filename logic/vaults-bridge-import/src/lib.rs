@@ -139,14 +139,22 @@ struct Mapping {
 }
 
 fn build_record(row: &[String], m: &Mapping) -> ImportedRecord {
-    let pick = |idx: Option<usize>| -> String { idx.and_then(|i| row.get(i).cloned()).unwrap_or_default() };
+    let pick = |idx: Option<usize>| -> String {
+        idx.and_then(|i| row.get(i).cloned()).unwrap_or_default()
+    };
     let raw_url = pick(m.url);
     let origin = canonicalise_origin(&raw_url);
     let label = pick(m.name);
     let username = pick(m.username);
     let password = Zeroizing::new(pick(m.password));
     let notes = pick(m.notes);
-    ImportedRecord { origin, username, password, label, notes }
+    ImportedRecord {
+        origin,
+        username,
+        password,
+        label,
+        notes,
+    }
 }
 
 /// Reduce an export's `url` field to a strict origin (`scheme://host[:port]`).
@@ -184,7 +192,10 @@ fn canonicalise_origin(raw: &str) -> String {
 // --- Header detection ----------------------------------------------------
 
 fn detect_source(header: &[String]) -> Option<Source> {
-    let lc: Vec<String> = header.iter().map(|s| s.trim().to_ascii_lowercase()).collect();
+    let lc: Vec<String> = header
+        .iter()
+        .map(|s| s.trim().to_ascii_lowercase())
+        .collect();
     let has = |needle: &str| lc.iter().any(|c| c == needle);
 
     // Google Passwords: name,url,username,password,note
@@ -223,8 +234,11 @@ fn detect_source(header: &[String]) -> Option<Source> {
 }
 
 fn column_mapping(source: Source, header: &[String]) -> Mapping {
-    let find =
-        |needle: &str| -> Option<usize> { header.iter().position(|c| c.trim().eq_ignore_ascii_case(needle)) };
+    let find = |needle: &str| -> Option<usize> {
+        header
+            .iter()
+            .position(|c| c.trim().eq_ignore_ascii_case(needle))
+    };
     let mut m = Mapping::default();
     match source {
         Source::Google => {
@@ -286,7 +300,11 @@ fn column_mapping(source: Source, header: &[String]) -> Mapping {
 // contain commas/newlines/quotes, doubled "" for an embedded quote.
 // Tolerates LF and CRLF line endings.
 
-fn parse_rows(text: &str) -> RowIter<'_> { RowIter { chars: text.chars() } }
+fn parse_rows(text: &str) -> RowIter<'_> {
+    RowIter {
+        chars: text.chars(),
+    }
+}
 
 struct RowIter<'a> {
     chars: core::str::Chars<'a>,

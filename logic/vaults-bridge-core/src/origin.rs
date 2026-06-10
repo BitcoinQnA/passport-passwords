@@ -54,11 +54,15 @@ impl Origin {
         Ok(Origin(s))
     }
 
-    pub fn as_str(&self) -> &str { &self.0 }
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
 }
 
 impl std::fmt::Display for Origin {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result { f.write_str(&self.0) }
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
 }
 
 /// Curated list of multi-label public suffixes. Without this `example.co.uk`
@@ -235,8 +239,14 @@ mod tests {
 
     #[test]
     fn rejects_non_http_scheme() {
-        assert!(matches!(Origin::parse("file:///etc/passwd"), Err(OriginError::UnsupportedScheme(_))));
-        assert!(matches!(Origin::parse("javascript:alert(1)"), Err(OriginError::UnsupportedScheme(_))));
+        assert!(matches!(
+            Origin::parse("file:///etc/passwd"),
+            Err(OriginError::UnsupportedScheme(_))
+        ));
+        assert!(matches!(
+            Origin::parse("javascript:alert(1)"),
+            Err(OriginError::UnsupportedScheme(_))
+        ));
     }
 
     #[test]
@@ -280,16 +290,28 @@ mod tests {
     fn registrable_domain_strips_subdomains() {
         assert_eq!(registrable_domain("gist.github.com"), Some("github.com"));
         assert_eq!(registrable_domain("a.b.c.example.com"), Some("example.com"));
-        assert_eq!(registrable_domain("www.foundation.xyz"), Some("foundation.xyz"));
+        assert_eq!(
+            registrable_domain("www.foundation.xyz"),
+            Some("foundation.xyz")
+        );
     }
 
     #[test]
     fn registrable_domain_handles_multi_label_suffixes() {
         assert_eq!(registrable_domain("example.co.uk"), Some("example.co.uk"));
-        assert_eq!(registrable_domain("foo.example.co.uk"), Some("example.co.uk"));
-        assert_eq!(registrable_domain("a.b.example.com.au"), Some("example.com.au"));
+        assert_eq!(
+            registrable_domain("foo.example.co.uk"),
+            Some("example.co.uk")
+        );
+        assert_eq!(
+            registrable_domain("a.b.example.com.au"),
+            Some("example.com.au")
+        );
         assert_eq!(registrable_domain("user.github.io"), Some("user.github.io"));
-        assert_eq!(registrable_domain("project.user.github.io"), Some("user.github.io"));
+        assert_eq!(
+            registrable_domain("project.user.github.io"),
+            Some("user.github.io")
+        );
     }
 
     #[test]

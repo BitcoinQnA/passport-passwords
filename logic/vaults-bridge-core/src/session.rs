@@ -68,15 +68,30 @@ pub struct Session {
 }
 
 impl Session {
-    pub fn new() -> Self { Self { state: SessionState::Idle, key: None, last_nonce: 0, last_activity_ms: 0 } }
+    pub fn new() -> Self {
+        Self {
+            state: SessionState::Idle,
+            key: None,
+            last_nonce: 0,
+            last_activity_ms: 0,
+        }
+    }
 
-    pub fn state(&self) -> SessionState { self.state }
+    pub fn state(&self) -> SessionState {
+        self.state
+    }
 
-    pub fn last_nonce(&self) -> u64 { self.last_nonce }
+    pub fn last_nonce(&self) -> u64 {
+        self.last_nonce
+    }
 
-    pub fn last_activity_ms(&self) -> u64 { self.last_activity_ms }
+    pub fn last_activity_ms(&self) -> u64 {
+        self.last_activity_ms
+    }
 
-    pub fn is_active(&self) -> bool { matches!(self.state, SessionState::Active) }
+    pub fn is_active(&self) -> bool {
+        matches!(self.state, SessionState::Active)
+    }
 
     /// Device side: given the host's ephemeral pubkey, generate our own
     /// ephemeral keypair, derive the session key, and return our pubkey.
@@ -152,7 +167,10 @@ impl Session {
             return Err(SessionError::NotActive);
         }
         if nonce <= self.last_nonce {
-            return Err(SessionError::NonceReused { got: nonce, last: self.last_nonce });
+            return Err(SessionError::NonceReused {
+                got: nonce,
+                last: self.last_nonce,
+            });
         }
         self.last_nonce = nonce;
         self.last_activity_ms = now_ms;
@@ -181,7 +199,9 @@ impl Session {
         let mut nonce_bytes = [0u8; 12];
         OsRng.fill_bytes(&mut nonce_bytes);
         let nonce = Nonce::from_slice(&nonce_bytes);
-        let ct = cipher.encrypt(nonce, plaintext).map_err(|_| SessionError::SealFailed)?;
+        let ct = cipher
+            .encrypt(nonce, plaintext)
+            .map_err(|_| SessionError::SealFailed)?;
         let mut out = Vec::with_capacity(12 + ct.len());
         out.extend_from_slice(&nonce_bytes);
         out.extend_from_slice(&ct);
@@ -201,7 +221,9 @@ impl Session {
         let (nonce_bytes, ct) = raw.split_at(12);
         let cipher = Aes256Gcm::new((&key).into());
         let nonce = Nonce::from_slice(nonce_bytes);
-        let pt = cipher.decrypt(nonce, ct).map_err(|_| SessionError::OpenFailed)?;
+        let pt = cipher
+            .decrypt(nonce, ct)
+            .map_err(|_| SessionError::OpenFailed)?;
         self.last_activity_ms = now_ms;
         Ok(pt)
     }
@@ -215,7 +237,9 @@ impl Session {
 }
 
 impl Default for Session {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl Drop for Session {
@@ -235,7 +259,8 @@ fn parse_pubkey(hex_str: &str) -> Result<PublicKey, SessionError> {
 fn derive_key(shared: &[u8], info: &[u8]) -> [u8; 32] {
     let hk = Hkdf::<Sha256>::new(None, shared);
     let mut out = [0u8; 32];
-    hk.expand(info, &mut out).expect("32 bytes is within HKDF-SHA256 output limit");
+    hk.expand(info, &mut out)
+        .expect("32 bytes is within HKDF-SHA256 output limit");
     out
 }
 
@@ -251,7 +276,8 @@ mod tests {
         let mut host = Session::new();
         let (host_pub, host_secret) = host.begin_host();
         let device_pub_hex = device.accept(&hex::encode(host_pub), INFO, 1_000).unwrap();
-        host.complete_host(host_secret, &device_pub_hex, INFO, 1_000).unwrap();
+        host.complete_host(host_secret, &device_pub_hex, INFO, 1_000)
+            .unwrap();
         (device, host)
     }
 
@@ -268,8 +294,14 @@ mod tests {
         let (mut device, _) = handshake();
         device.accept_nonce(1, 1_100).unwrap();
         device.accept_nonce(2, 1_200).unwrap();
-        assert!(matches!(device.accept_nonce(2, 1_300), Err(SessionError::NonceReused { got: 2, last: 2 })));
-        assert!(matches!(device.accept_nonce(1, 1_300), Err(SessionError::NonceReused { got: 1, last: 2 })));
+        assert!(matches!(
+            device.accept_nonce(2, 1_300),
+            Err(SessionError::NonceReused { got: 2, last: 2 })
+        ));
+        assert!(matches!(
+            device.accept_nonce(1, 1_300),
+            Err(SessionError::NonceReused { got: 1, last: 2 })
+        ));
         device.accept_nonce(3, 1_400).unwrap();
     }
 
@@ -287,7 +319,10 @@ mod tests {
         let expired_at = 1_000 + IDLE_MS;
         assert!(device.check_idle(expired_at, IDLE_MS));
         assert_eq!(device.state(), SessionState::Expired);
-        assert_eq!(device.seal(b"x", expired_at).unwrap_err(), SessionError::NotActive);
+        assert_eq!(
+            device.seal(b"x", expired_at).unwrap_err(),
+            SessionError::NotActive
+        );
     }
 
     #[test]
@@ -314,6 +349,9 @@ mod tests {
         let (_, mut other_host) = handshake();
         let mut device = device;
         let sealed = device.seal(b"hunter2", 1_500).unwrap();
-        assert!(matches!(other_host.open(&sealed, 1_500), Err(SessionError::OpenFailed)));
+        assert!(matches!(
+            other_host.open(&sealed, 1_500),
+            Err(SessionError::OpenFailed)
+        ));
     }
 }

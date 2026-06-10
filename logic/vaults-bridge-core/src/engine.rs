@@ -9,10 +9,11 @@ use std::sync::{Arc, Mutex};
 
 use rand_core::{OsRng, RngCore};
 use vaults_bridge_protocol::{
-    CharsetHint, CredentialSummary as WireCredentialSummary, ErrorCode, ErrorPayload, EstablishSessionParams,
-    EstablishSessionResult, GeneratePasswordParams, GeneratePasswordResult, ListCredentialsParams,
-    ListCredentialsResult, ListOriginsResult, Method, ReleaseCredentialParams, ReleaseCredentialResult,
-    Request, Response, ResponseBody, StoreAction, StoreCredentialParams, StoreCredentialResult,
+    CharsetHint, CredentialSummary as WireCredentialSummary, ErrorCode, ErrorPayload,
+    EstablishSessionParams, EstablishSessionResult, GeneratePasswordParams, GeneratePasswordResult,
+    ListCredentialsParams, ListCredentialsResult, ListOriginsResult, Method,
+    ReleaseCredentialParams, ReleaseCredentialResult, Request, Response, ResponseBody, StoreAction,
+    StoreCredentialParams, StoreCredentialResult,
 };
 use zeroize::Zeroizing;
 
@@ -45,7 +46,11 @@ pub struct EngineConfig {
 }
 
 impl Default for EngineConfig {
-    fn default() -> Self { Self { idle_ms: DEFAULT_IDLE_MS } }
+    fn default() -> Self {
+        Self {
+            idle_ms: DEFAULT_IDLE_MS,
+        }
+    }
 }
 
 /// Returned by an `OnWriteHook` when persistence fails. Engine maps this
@@ -55,7 +60,9 @@ impl Default for EngineConfig {
 pub struct PersistError;
 
 impl std::fmt::Display for PersistError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result { f.write_str("persist failed") }
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("persist failed")
+    }
 }
 
 impl std::error::Error for PersistError {}
@@ -81,7 +88,13 @@ impl<S: CredentialStore + 'static> Engine<S> {
         cfg: EngineConfig,
         on_write: OnWriteHook,
     ) -> Self {
-        Self { store, session: Mutex::new(Session::new()), approver, cfg, on_write }
+        Self {
+            store,
+            session: Mutex::new(Session::new()),
+            approver,
+            cfg,
+            on_write,
+        }
     }
 
     /// Convenience for tests: no-op `on_write` hook.
@@ -93,18 +106,32 @@ impl<S: CredentialStore + 'static> Engine<S> {
         let id = req.id.clone();
         match self.dispatch(req, now_ms).await {
             Ok(body) => Response::Ok { id, result: body },
-            Err((code, message)) => Response::Err { id, error: ErrorPayload { code: code as i32, message } },
+            Err((code, message)) => Response::Err {
+                id,
+                error: ErrorPayload {
+                    code: code as i32,
+                    message,
+                },
+            },
         }
     }
 
-    async fn dispatch(&self, req: Request, now_ms: u64) -> Result<ResponseBody, (ErrorCode, String)> {
+    async fn dispatch(
+        &self,
+        req: Request,
+        now_ms: u64,
+    ) -> Result<ResponseBody, (ErrorCode, String)> {
         match req.method {
             Method::Ping => Ok(ResponseBody::Pong { pong: true }),
 
             Method::EstablishSession(EstablishSessionParams { host_pubkey }) => {
                 let mut s = self.session.lock().unwrap();
-                let device_pubkey = s.accept(&host_pubkey, SESSION_INFO, now_ms).map_err(map_session_err)?;
-                Ok(ResponseBody::EstablishSession(EstablishSessionResult { device_pubkey }))
+                let device_pubkey = s
+                    .accept(&host_pubkey, SESSION_INFO, now_ms)
+                    .map_err(map_session_err)?;
+                Ok(ResponseBody::EstablishSession(EstablishSessionResult {
+                    device_pubkey,
+                }))
             }
 
             Method::ListOrigins => {
@@ -129,24 +156,33 @@ impl<S: CredentialStore + 'static> Engine<S> {
                     })
                     .collect();
                 credentials.sort_by(|a, b| {
-                    b.last_used_at.cmp(&a.last_used_at).then_with(|| a.username.cmp(&b.username))
+                    b.last_used_at
+                        .cmp(&a.last_used_at)
+                        .then_with(|| a.username.cmp(&b.username))
                 });
-                Ok(ResponseBody::ListCredentials(ListCredentialsResult { credentials }))
+                Ok(ResponseBody::ListCredentials(ListCredentialsResult {
+                    credentials,
+                }))
             }
 
-            Method::ReleaseCredential(ReleaseCredentialParams { origin, username_hint, request_nonce }) => {
-                self.handle_release(origin, username_hint, request_nonce, now_ms)
-                    .await
-                    .map(ResponseBody::ReleaseCredential)
-            }
+            Method::ReleaseCredential(ReleaseCredentialParams {
+                origin,
+                username_hint,
+                request_nonce,
+            }) => self
+                .handle_release(origin, username_hint, request_nonce, now_ms)
+                .await
+                .map(ResponseBody::ReleaseCredential),
 
-            Method::StoreCredential(p) => {
-                self.handle_store(p, now_ms).await.map(ResponseBody::StoreCredential)
-            }
+            Method::StoreCredential(p) => self
+                .handle_store(p, now_ms)
+                .await
+                .map(ResponseBody::StoreCredential),
 
-            Method::GeneratePassword(p) => {
-                self.handle_generate(p, now_ms).await.map(ResponseBody::GeneratePassword)
-            }
+            Method::GeneratePassword(p) => self
+                .handle_generate(p, now_ms)
+                .await
+                .map(ResponseBody::GeneratePassword),
 
             Method::Cancel => {
                 self.approver.cancel_pending();
@@ -178,19 +214,25 @@ impl<S: CredentialStore + 'static> Engine<S> {
             if candidates.is_empty() {
                 return Err((ErrorCode::UnknownOrigin, "no records for origin".into()));
             }
-            let chosen =
-                match &username_hint {
-                    Some(h) => candidates.iter().find(|r| r.username == *h).cloned().ok_or_else(|| {
-                        (ErrorCode::UnknownOrigin, "no matching username for origin".into())
+            let chosen = match &username_hint {
+                Some(h) => candidates
+                    .iter()
+                    .find(|r| r.username == *h)
+                    .cloned()
+                    .ok_or_else(|| {
+                        (
+                            ErrorCode::UnknownOrigin,
+                            "no matching username for origin".into(),
+                        )
                     })?,
-                    None if candidates.len() == 1 => candidates[0].clone(),
-                    None => {
-                        return Err((
-                            ErrorCode::MultipleMatches,
-                            "multiple credentials match this origin".into(),
-                        ));
-                    }
-                };
+                None if candidates.len() == 1 => candidates[0].clone(),
+                None => {
+                    return Err((
+                        ErrorCode::MultipleMatches,
+                        "multiple credentials match this origin".into(),
+                    ));
+                }
+            };
             (chosen.username, Zeroizing::new(chosen.password))
         };
 
@@ -211,9 +253,14 @@ impl<S: CredentialStore + 'static> Engine<S> {
         }
 
         let mut s = self.session.lock().unwrap();
-        let password_sealed = s.seal(password_plain.as_bytes(), now_ms).map_err(map_session_err)?;
+        let password_sealed = s
+            .seal(password_plain.as_bytes(), now_ms)
+            .map_err(map_session_err)?;
 
-        Ok(ReleaseCredentialResult { username, password_sealed })
+        Ok(ReleaseCredentialResult {
+            username,
+            password_sealed,
+        })
     }
 
     async fn handle_store(
@@ -221,7 +268,13 @@ impl<S: CredentialStore + 'static> Engine<S> {
         p: StoreCredentialParams,
         now_ms: u64,
     ) -> Result<StoreCredentialResult, (ErrorCode, String)> {
-        let StoreCredentialParams { origin, username, label, password_sealed, request_nonce } = p;
+        let StoreCredentialParams {
+            origin,
+            username,
+            label,
+            password_sealed,
+            request_nonce,
+        } = p;
         let canonical = canonicalize_origin(&origin)?;
         if username.is_empty() {
             return Err((ErrorCode::InvalidRequest, "username is required".into()));
@@ -251,9 +304,10 @@ impl<S: CredentialStore + 'static> Engine<S> {
         let (action, store_action) = match existing {
             ExistingCredential::None => (ApprovalAction::Save, StoreAction::Saved),
             ExistingCredential::Live => (ApprovalAction::Update, StoreAction::Updated),
-            ExistingCredential::Archived => {
-                (ApprovalAction::RestoreAndUpdate, StoreAction::RestoredAndUpdated)
-            }
+            ExistingCredential::Archived => (
+                ApprovalAction::RestoreAndUpdate,
+                StoreAction::RestoredAndUpdated,
+            ),
         };
 
         let decision = self
@@ -278,7 +332,9 @@ impl<S: CredentialStore + 'static> Engine<S> {
                 .map_err(|_| (ErrorCode::Internal, "store backend".into()))
         })?;
 
-        Ok(StoreCredentialResult { action: store_action })
+        Ok(StoreCredentialResult {
+            action: store_action,
+        })
     }
 
     async fn handle_generate(
@@ -286,7 +342,14 @@ impl<S: CredentialStore + 'static> Engine<S> {
         p: GeneratePasswordParams,
         now_ms: u64,
     ) -> Result<GeneratePasswordResult, (ErrorCode, String)> {
-        let GeneratePasswordParams { origin, username, label, length, charset, request_nonce } = p;
+        let GeneratePasswordParams {
+            origin,
+            username,
+            label,
+            length,
+            charset,
+            request_nonce,
+        } = p;
         let canonical = canonicalize_origin(&origin)?;
         if username.is_empty() {
             return Err((ErrorCode::InvalidRequest, "username is required".into()));
@@ -298,11 +361,15 @@ impl<S: CredentialStore + 'static> Engine<S> {
 
         self.gate_session(request_nonce, now_ms)?;
 
-        let len =
-            length.unwrap_or(DEFAULT_GENERATED_LENGTH).clamp(MIN_GENERATED_LENGTH, MAX_GENERATED_LENGTH);
+        let len = length
+            .unwrap_or(DEFAULT_GENERATED_LENGTH)
+            .clamp(MIN_GENERATED_LENGTH, MAX_GENERATED_LENGTH);
         let charset = charset.unwrap_or_default();
         if !(charset.letters || charset.digits || charset.symbols) {
-            return Err((ErrorCode::BadPolicy, "at least one charset class must be enabled".into()));
+            return Err((
+                ErrorCode::BadPolicy,
+                "at least one charset class must be enabled".into(),
+            ));
         }
 
         // Probe existing record to label the approval card correctly.
@@ -310,9 +377,10 @@ impl<S: CredentialStore + 'static> Engine<S> {
         let (action, store_action) = match existing {
             ExistingCredential::None => (ApprovalAction::Generate, StoreAction::Saved),
             ExistingCredential::Live => (ApprovalAction::GenerateAndUpdate, StoreAction::Updated),
-            ExistingCredential::Archived => {
-                (ApprovalAction::GenerateAndRestore, StoreAction::RestoredAndUpdated)
-            }
+            ExistingCredential::Archived => (
+                ApprovalAction::GenerateAndRestore,
+                StoreAction::RestoredAndUpdated,
+            ),
         };
 
         let decision = self
@@ -340,9 +408,14 @@ impl<S: CredentialStore + 'static> Engine<S> {
         })?;
 
         let mut s = self.session.lock().unwrap();
-        let password_sealed = s.seal(password.as_bytes(), now_ms).map_err(map_session_err)?;
+        let password_sealed = s
+            .seal(password.as_bytes(), now_ms)
+            .map_err(map_session_err)?;
 
-        Ok(GeneratePasswordResult { password_sealed, action: store_action })
+        Ok(GeneratePasswordResult {
+            password_sealed,
+            action: store_action,
+        })
     }
 
     fn gate_session(&self, request_nonce: u64, now_ms: u64) -> Result<(), (ErrorCode, String)> {
@@ -350,7 +423,8 @@ impl<S: CredentialStore + 'static> Engine<S> {
         if s.check_idle(now_ms, self.cfg.idle_ms) {
             return Err((ErrorCode::SessionExpired, "session idle timeout".into()));
         }
-        s.accept_nonce(request_nonce, now_ms).map_err(map_session_err)
+        s.accept_nonce(request_nonce, now_ms)
+            .map_err(map_session_err)
     }
 
     fn gate_active_session(&self, now_ms: u64) -> Result<(), (ErrorCode, String)> {
@@ -397,7 +471,8 @@ fn canonicalize_origin(input: &str) -> Result<String, (ErrorCode, String)> {
     // match key. We deliberately don't require strict equality with the
     // input — browsers normalize differently than `url`, and forcing the
     // host to replicate our exact rules is brittle.
-    let parsed = Origin::parse(input).map_err(|_| (ErrorCode::InvalidRequest, "invalid origin".into()))?;
+    let parsed =
+        Origin::parse(input).map_err(|_| (ErrorCode::InvalidRequest, "invalid origin".into()))?;
     Ok(parsed.as_str().to_string())
 }
 
@@ -515,7 +590,9 @@ mod tests {
         approval::AutoApprove,
         record::CredentialRecord,
         session::Session,
-        store::{CredentialMatch, CredentialStore, CredentialSummary, ExistingCredential, StoreError},
+        store::{
+            CredentialMatch, CredentialStore, CredentialSummary, ExistingCredential, StoreError,
+        },
     };
 
     #[derive(Default)]
@@ -526,7 +603,9 @@ mod tests {
     impl CredentialStore for TestStore {
         type Snapshot = Vec<CredentialRecord>;
 
-        fn list_origins(&self) -> Vec<String> { self.records.iter().map(|r| r.origin.clone()).collect() }
+        fn list_origins(&self) -> Vec<String> {
+            self.records.iter().map(|r| r.origin.clone()).collect()
+        }
 
         fn list_credentials_for_origin(&self, origin: &str) -> Vec<CredentialSummary> {
             self.records
@@ -544,16 +623,27 @@ mod tests {
             self.records
                 .iter()
                 .filter(|r| r.origin == origin)
-                .map(|r| CredentialMatch { username: r.username.clone(), password: r.password.clone() })
+                .map(|r| CredentialMatch {
+                    username: r.username.clone(),
+                    password: r.password.clone(),
+                })
                 .collect()
         }
 
-        fn snapshot(&self) -> Self::Snapshot { self.records.clone() }
+        fn snapshot(&self) -> Self::Snapshot {
+            self.records.clone()
+        }
 
-        fn restore_snapshot(&mut self, snapshot: Self::Snapshot) { self.records = snapshot; }
+        fn restore_snapshot(&mut self, snapshot: Self::Snapshot) {
+            self.records = snapshot;
+        }
 
         fn probe(&self, origin: &str, username: &str) -> ExistingCredential {
-            match self.records.iter().find(|r| r.origin == origin && r.username == username) {
+            match self
+                .records
+                .iter()
+                .find(|r| r.origin == origin && r.username == username)
+            {
                 None => ExistingCredential::None,
                 Some(r) if r.archived => ExistingCredential::Archived,
                 Some(_) => ExistingCredential::Live,
@@ -587,7 +677,9 @@ mod tests {
     }
 
     fn noop_waker() -> Waker {
-        unsafe fn clone(_: *const ()) -> RawWaker { RawWaker::new(std::ptr::null(), &VTABLE) }
+        unsafe fn clone(_: *const ()) -> RawWaker {
+            RawWaker::new(std::ptr::null(), &VTABLE)
+        }
         unsafe fn wake(_: *const ()) {}
         unsafe fn wake_by_ref(_: *const ()) {}
         unsafe fn drop(_: *const ()) {}
@@ -607,23 +699,42 @@ mod tests {
             },
             1_000,
         ));
-        let Response::Ok { result: ResponseBody::EstablishSession(result), .. } = resp else {
+        let Response::Ok {
+            result: ResponseBody::EstablishSession(result),
+            ..
+        } = resp
+        else {
             panic!("handshake failed");
         };
-        host.complete_host(host_secret, &result.device_pubkey, SESSION_INFO, 1_000).unwrap();
+        host.complete_host(host_secret, &result.device_pubkey, SESSION_INFO, 1_000)
+            .unwrap();
         host
     }
 
     #[test]
     fn generate_respects_charset_letters_only() {
-        let pw = generate_password(32, &CharsetHint { letters: true, digits: false, symbols: false });
+        let pw = generate_password(
+            32,
+            &CharsetHint {
+                letters: true,
+                digits: false,
+                symbols: false,
+            },
+        );
         assert_eq!(pw.len(), 32);
         assert!(pw.chars().all(|c| c.is_ascii_alphabetic()));
     }
 
     #[test]
     fn generate_respects_charset_digits_only() {
-        let pw = generate_password(16, &CharsetHint { letters: false, digits: true, symbols: false });
+        let pw = generate_password(
+            16,
+            &CharsetHint {
+                letters: false,
+                digits: true,
+                symbols: false,
+            },
+        );
         assert!(pw.chars().all(|c| c.is_ascii_digit()));
     }
 
@@ -643,7 +754,14 @@ mod tests {
 
     #[test]
     fn generate_empty_when_no_classes_enabled() {
-        let pw = generate_password(24, &CharsetHint { letters: false, digits: false, symbols: false });
+        let pw = generate_password(
+            24,
+            &CharsetHint {
+                letters: false,
+                digits: false,
+                symbols: false,
+            },
+        );
         assert!(pw.is_empty());
     }
 
