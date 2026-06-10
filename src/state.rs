@@ -18,20 +18,11 @@ pub struct AppState {
 }
 
 impl AppState {
-    pub fn new(
-        keystore: Arc<Mutex<Keystore>>,
-        ui: slint_keyos_platform::slint::Weak<AppWindow>,
-    ) -> Self {
-        Self {
-            keystore,
-            ui,
-            search: String::new(),
-        }
+    pub fn new(keystore: Arc<Mutex<Keystore>>, ui: slint_keyos_platform::slint::Weak<AppWindow>) -> Self {
+        Self { keystore, ui, search: String::new() }
     }
 
-    pub fn set_search(&mut self, q: String) {
-        self.search = q.to_lowercase();
-    }
+    pub fn set_search(&mut self, q: String) { self.search = q.to_lowercase(); }
 
     pub fn refresh_credentials(&self) {
         let Some(ui) = self.ui.upgrade() else { return };
@@ -80,10 +71,8 @@ fn record_to_view(r: &CredentialRecord) -> StoredCredential {
 }
 
 fn host_from_origin(origin: &str) -> String {
-    let stripped = origin
-        .strip_prefix("https://")
-        .or_else(|| origin.strip_prefix("http://"))
-        .unwrap_or(origin);
+    let stripped =
+        origin.strip_prefix("https://").or_else(|| origin.strip_prefix("http://")).unwrap_or(origin);
     stripped.to_string()
 }
 
@@ -91,10 +80,8 @@ fn format_last_used(secs: u64) -> String {
     if secs == 0 {
         return String::new();
     }
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0);
+    let now =
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
     let elapsed = now.saturating_sub(secs);
     if elapsed < 30 {
         "Just now".into()

@@ -61,9 +61,7 @@ pub async fn serve(engine: Arc<Engine<Keystore>>, bind: &str) -> Result<()> {
                                 message: "invalid request".to_string(),
                             },
                         };
-                        let _ = sink
-                            .send(Message::Text(serde_json::to_string(&err).unwrap()))
-                            .await;
+                        let _ = sink.send(Message::Text(serde_json::to_string(&err).unwrap())).await;
                         continue;
                     }
                 };
@@ -79,9 +77,4 @@ pub async fn serve(engine: Arc<Engine<Keystore>>, bind: &str) -> Result<()> {
     }
 }
 
-fn now_ms() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_millis() as u64)
-        .unwrap_or(0)
-}
+fn now_ms() -> u64 { SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0) }

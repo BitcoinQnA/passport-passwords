@@ -3,11 +3,11 @@
 
 [package]
 name = "vaults-bridge-import"
-version.workspace = true
-edition.workspace = true
-license.workspace = true
+version = "0.1.0"
+edition = "2021"
+license = "GPL-3.0-or-later"
 
 [dependencies]
-thiserror.workspace = true
-url.workspace = true
-zeroize.workspace = true
+thiserror = "1"
+url = "2"
+zeroize = { version = "1.7", features = ["derive"] }

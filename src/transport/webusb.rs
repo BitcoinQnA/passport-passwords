@@ -36,6 +36,7 @@ usb::use_device_api!();
 const WEBUSB_IFCE_CLASS: u8 = 0xFF;
 const WEBUSB_IFCE_SUBCLASS: u8 = 0xFF;
 const WEBUSB_IFCE_PROTOCOL: u8 = 0xFF;
+const WEBUSB_INTERFACE_NUMBER: u8 = 0;
 
 /// Hard cap on a single newline-delimited request, in bytes. Matches
 /// `vaults_bridge_protocol::frame::LineSplitter::MAX_LINE_BYTES`. A host
@@ -85,10 +86,7 @@ impl ServerMessages for SetupResponder {
 
     fn messages() -> &'static [server::MessageDef<Self>] {
         use server::MessageId;
-        &[(
-            SetupPacketCallback::ID,
-            server::handle_blocking_archive_message::<SetupPacketCallback, _>,
-        )]
+        &[(SetupPacketCallback::ID, server::handle_blocking_archive_message::<SetupPacketCallback, _>)]
     }
 }
 impl Server for SetupResponder {}
@@ -159,21 +157,18 @@ fn serve_blocking(engine: Arc<Engine<Keystore>>) -> anyhow::Result<()> {
         return Ok(());
     }
 
-    if let Err(e) = usb.register_setup_responder(SetupResponder) {
-        crate::transport::set_status(format!("WebUSB: setup responder failed: {e:?}"));
-        return Err(anyhow::anyhow!("register_setup_responder: {e:?}"));
-    }
-
     crate::transport::set_status("WebUSB: registering interface");
-    let [mut ep_in, ep_out] = match usb.register_interface(
-        WEBUSB_IFCE_CLASS,
-        WEBUSB_IFCE_SUBCLASS,
-        WEBUSB_IFCE_PROTOCOL,
-        &WEBUSB_ENDPOINTS,
-        &[],
-        0,
+    let (_webusb_interface, [mut ep_in, ep_out]) = match usb.register_interface(
+        UsbInterfaceConfig::new(
+            WEBUSB_INTERFACE_NUMBER,
+            WEBUSB_IFCE_CLASS,
+            WEBUSB_IFCE_SUBCLASS,
+            WEBUSB_IFCE_PROTOCOL,
+            &WEBUSB_ENDPOINTS,
+        )
+        .with_setup_responder(Some(SetupResponder)),
     ) {
-        Ok(eps) => eps,
+        Ok(interface) => interface,
         Err(e) => {
             let msg = format!("WebUSB: register interface failed: {e:?}");
             log::warn!("{msg}");
@@ -194,9 +189,7 @@ fn serve_blocking(engine: Arc<Engine<Keystore>>) -> anyhow::Result<()> {
     crate::transport::set_status("WebUSB: resetting USB");
     usb.reset_controller();
 
-    crate::transport::set_status(format!(
-        "WebUSB ready (EP out={ep_out_num}, in={ep_in_num})"
-    ));
+    crate::transport::set_status(format!("WebUSB ready (EP out={ep_out_num}, in={ep_in_num})"));
 
     let (payload_tx, payload_rx) = mpsc::channel::<Vec<u8>>();
 
@@ -214,13 +207,8 @@ fn serve_blocking(engine: Arc<Engine<Keystore>>) -> anyhow::Result<()> {
     let mut total_handled: u64 = 0;
     while let Ok(payload) = payload_rx.recv() {
         log::trace!("webusb dispatcher: got {} byte payload", payload.len());
-        crate::transport::set_status(format!(
-            "dispatch {} ({}B)",
-            total_handled + 1,
-            payload.len()
-        ));
-        let response =
-            slint_keyos_platform::futures_lite::future::block_on(dispatch(&engine, &payload));
+        crate::transport::set_status(format!("dispatch {} ({}B)", total_handled + 1, payload.len()));
+        let response = slint_keyos_platform::futures_lite::future::block_on(dispatch(&engine, &payload));
         let mut response_bytes = match serde_json::to_vec(&response) {
             Ok(b) => b,
             Err(e) => {
@@ -239,10 +227,7 @@ fn serve_blocking(engine: Arc<Engine<Keystore>>) -> anyhow::Result<()> {
             write_buf.as_slice_mut::<u8>()[..chunk.len()].copy_from_slice(chunk);
             match ep_in.write_buf(write_buf, chunk.len()) {
                 Ok(n) => {
-                    crate::transport::set_status(format!(
-                        "tx chunk {chunk_idx} {}B ok ({n})",
-                        chunk.len()
-                    ));
+                    crate::transport::set_status(format!("tx chunk {chunk_idx} {}B ok ({n})", chunk.len()));
                 }
                 Err(usb::error::UsbError::HostDisconnected) => {
                     log::info!("webusb writer: host disconnected; waiting");
@@ -279,9 +264,7 @@ fn reader_loop(
             return;
         }
     };
-    crate::transport::set_status(format!(
-        "WebUSB reader started (out={ep_out_num} in={ep_in_num})"
-    ));
+    crate::transport::set_status(format!("WebUSB reader started (out={ep_out_num} in={ep_in_num})"));
     let mut line = Vec::<u8>::new();
     let mut total_bytes_read: u64 = 0;
     let mut total_lines: u64 = 0;
@@ -295,9 +278,7 @@ fn reader_loop(
                 if let Err(e) = usb_api.wait_for_connection() {
                     log::warn!("webusb wait_for_connection: {e:?}");
                 }
-                crate::transport::set_status(format!(
-                    "WebUSB ready (EP out={ep_out_num}, in={ep_in_num})"
-                ));
+                crate::transport::set_status(format!("WebUSB ready (EP out={ep_out_num}, in={ep_in_num})"));
                 continue;
             }
             Err(e) => {
@@ -310,9 +291,7 @@ fn reader_loop(
             continue;
         }
         total_bytes_read += got as u64;
-        crate::transport::set_status(format!(
-            "rx {got}B / {total_bytes_read} total / {total_lines} lines"
-        ));
+        crate::transport::set_status(format!("rx {got}B / {total_bytes_read} total / {total_lines} lines"));
         let chunk = &read_buf.as_slice::<u8>()[..got];
         for &b in chunk {
             if b == b'\n' {
@@ -321,11 +300,7 @@ fn reader_loop(
                 }
                 let payload = std::mem::take(&mut line);
                 total_lines += 1;
-                crate::transport::set_status(format!(
-                    "got line {} ({}B)",
-                    total_lines,
-                    payload.len()
-                ));
+                crate::transport::set_status(format!("got line {} ({}B)", total_lines, payload.len()));
                 if payload_tx.send(payload).is_err() {
                     log::warn!("webusb dispatcher gone, reader exiting");
                     crate::transport::set_status("dispatcher gone");
@@ -368,9 +343,4 @@ async fn dispatch(engine: &Engine<Keystore>, payload: &[u8]) -> Response {
     engine.handle(req, now_ms()).await
 }
 
-fn now_ms() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_millis() as u64)
-        .unwrap_or(0)
-}
+fn now_ms() -> u64 { SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0) }

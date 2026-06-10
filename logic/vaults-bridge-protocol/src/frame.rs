@@ -39,9 +39,7 @@ pub struct LineSplitter {
 }
 
 impl LineSplitter {
-    pub fn new() -> Self {
-        Self::default()
-    }
+    pub fn new() -> Self { Self::default() }
 
     /// Feed a byte slice. Returns 0+ complete lines and keeps any tail
     /// in the internal buffer.
