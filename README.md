@@ -107,6 +107,25 @@ browser, so a host-side attacker watching USB traffic can't read it.
 - **`i18n/en.json`** — user-facing strings (localization scaffold; see
   [SDK-SETUP.md](SDK-SETUP.md)).
 
+## Quickstart
+
+> **Can you clone this and run it today?** Not as an outside developer yet — and
+> we'd rather say so up front. There are two build paths and neither is a clean
+> external `git clone && run` at the moment:
+>
+> 1. **Foundation SDK (`foundation` CLI)** — the intended path. Currently blocked
+>    by an SDK toolchain bug (`server-macro` uses a Rust feature removed from
+>    current toolchains), so `foundation sim`/`build` fail on a clean compile.
+>    Being fixed with the SDK team.
+> 2. **KeyOS monorepo (`cargo xtask`)** — works today, but needs a private
+>    `Foundation-Devices/KeyOS-dev` checkout beside this repo (the app path-deps
+>    into `../KeyOS-dev2`). Foundation-internal only.
+>
+> The one change that unlocks external clone-and-run: repoint `Cargo.toml`'s
+> `../KeyOS-dev2` deps at the SDK's bundled KeyOS libs, and land the SDK fix.
+> **Building this repo with an AI agent?** Point it at [`AGENTS.md`](AGENTS.md) —
+> it has the exact commands, the current gotchas, and the repo map.
+
 ## Building
 
 This is a KeyOS app and builds **inside a KeyOS workspace** (it depends on KeyOS
