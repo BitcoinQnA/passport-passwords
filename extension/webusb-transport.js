@@ -3,13 +3,15 @@
 
 // WebUSB transport. Speaks newline-delimited JSON to the Vaults Bridge
 // app on Passport Prime, which exposes a vendor-class USB interface
-// (class/subclass/protocol = 0xFF/0xFF/0xFF) with two 64-byte Interrupt
+// (class/subclass/protocol = 0xFF/0x50/0x01) with two 64-byte Interrupt
 // endpoints plus WebUSB + MS OS 2.0 Platform Capability descriptors.
 // Mirrors nostr-signer/browser-extension-1.3/webusb-transport.js for
 // transport plumbing; method surface differs.
 
 const REQUEST_TIMEOUT_MS = 5 * 60 * 1000; // allow for on-device approval tap
 const PROBE_TIMEOUT_MS = 1500;
+const CONNECT_RETRY_WINDOW_MS = 5000;
+const CONNECT_RETRY_DELAY_MS = 250;
 const MAX_LINE_BYTES = 16 * 1024;
 const DEBUG_USB = false;
 
@@ -19,9 +21,71 @@ function debugUsb(...args) {
 
 const DEVICE_FILTER = {
   classCode: 0xff,
-  subclassCode: 0xff,
-  protocolCode: 0xff,
+  subclassCode: 0x50,
+  protocolCode: 0x01,
 };
+
+const FOUNDATION_PASSPORT_FILTER = {
+  vendorId: 0x1307,
+  productId: 0x0165,
+};
+
+function isLikelyPassport(device) {
+  return (
+    (device.vendorId === FOUNDATION_PASSPORT_FILTER.vendorId &&
+      device.productId === FOUNDATION_PASSPORT_FILTER.productId) ||
+    /passport/i.test(device.productName || "")
+  );
+}
+
+function hexByte(value) {
+  return `0x${Number(value || 0).toString(16).padStart(2, "0")}`;
+}
+
+function endpointSummary(endpoint) {
+  return `${endpoint.direction}:${endpoint.type || "?"}:${endpoint.endpointNumber}`;
+}
+
+function collectInterfaceCandidates(device) {
+  const candidates = [];
+  const descriptions = [];
+  const interfaces = device.configuration?.interfaces || [];
+  for (const iface of interfaces) {
+    const alternates = iface.alternates?.length ? iface.alternates : [iface.alternate].filter(Boolean);
+    for (const alt of alternates) {
+      const endpoints = alt.endpoints || [];
+      descriptions.push(
+        `if${iface.interfaceNumber}/alt${alt.alternateSetting ?? "?"} ` +
+        `${hexByte(alt.interfaceClass)}/${hexByte(alt.interfaceSubclass)}/${hexByte(alt.interfaceProtocol)} ` +
+        `eps=${endpoints.map(endpointSummary).join(",") || "none"}`,
+      );
+
+      const inEp = endpoints.find((e) => e.direction === "in" && e.type === "interrupt") ||
+        endpoints.find((e) => e.direction === "in");
+      const outEp = endpoints.find((e) => e.direction === "out" && e.type === "interrupt") ||
+        endpoints.find((e) => e.direction === "out");
+      if (!inEp || !outEp) continue;
+
+      const exact =
+        alt.interfaceClass === DEVICE_FILTER.classCode &&
+        alt.interfaceSubclass === DEVICE_FILTER.subclassCode &&
+        alt.interfaceProtocol === DEVICE_FILTER.protocolCode;
+      if (!exact) continue;
+      candidates.push({
+        ifaceNumber: iface.interfaceNumber,
+        alternateSetting: alt.alternateSetting,
+        inEp: inEp.endpointNumber,
+        outEp: outEp.endpointNumber,
+        descriptor:
+          `if${iface.interfaceNumber}/alt${alt.alternateSetting ?? "?"} ` +
+          `${hexByte(alt.interfaceClass)}/${hexByte(alt.interfaceSubclass)}/${hexByte(alt.interfaceProtocol)} ` +
+          `IN=${inEp.endpointNumber} OUT=${outEp.endpointNumber}`,
+      });
+    }
+  }
+  candidates.sort((a, b) => a.ifaceNumber - b.ifaceNumber);
+  return { candidates, descriptions };
+}
 
 export class WebUsbTransport {
   constructor() {
@@ -33,23 +97,54 @@ export class WebUsbTransport {
     this.lineBuffer = "";
     this.pending = new Map();
     this.readAbort = false;
+    this.connectPromise = null;
+    this.teardownPromise = null;
+
+    navigator.usb.addEventListener("disconnect", (event) => {
+      if (event.device === this.device) {
+        this._tearDown().catch(() => {});
+      }
+    });
   }
 
   async connect() {
-    const granted = await navigator.usb.getDevices();
-    if (granted.length === 0) {
-      throw new Error("No Passport Prime paired yet");
+    if (this.device) return;
+    if (this.connectPromise) return this.connectPromise;
+    this.connectPromise = this._connectWithRetry();
+    try {
+      await this.connectPromise;
+    } finally {
+      this.connectPromise = null;
     }
-    const failures = [];
-    for (const d of granted) {
-      const { ok, reason } = await this._tryOpen(d);
-      if (ok) return;
-      failures.push(reason);
+  }
+
+  async _connectWithRetry() {
+    const deadline = Date.now() + CONNECT_RETRY_WINDOW_MS;
+    let sawPassport = false;
+    let lastFailure = "Couldn't connect to Passport Prime";
+
+    while (true) {
+      const granted = await navigator.usb.getDevices();
+      const devices = granted.filter(isLikelyPassport);
+      if (devices.length > 0) sawPassport = true;
+      if (!sawPassport && devices.length === 0) {
+        throw new Error("No Passport Prime paired yet");
+      }
+
+      for (const device of devices) {
+        const { ok, reason } = await this._tryOpen(device);
+        if (ok) return;
+        lastFailure = reason || lastFailure;
+      }
+
+      if (Date.now() >= deadline) break;
+      await sleep(CONNECT_RETRY_DELAY_MS);
     }
-    // Prefer the most informative single reason — concatenating reasons
-    // across multiple paired devices is overwhelming and almost never
-    // useful (users typically have one Prime paired).
-    throw new Error(failures[0] || "Couldn't connect to Passport Prime");
+
+    // A foreground app launch briefly removes and recreates its dynamic USB
+    // interface. Retrying here absorbs that normal re-enumeration window;
+    // RPCs themselves are never replayed automatically.
+    throw new Error(lastFailure);
   }
 
   async _tryOpen(device) {
@@ -65,44 +160,34 @@ export class WebUsbTransport {
       return { ok: false, reason: friendly };
     }
 
-    // KeyOS exposes more than one vendor-class interface (one is the
-    // boot-time usb-debug, others are runtime-registered apps). Try
-    // every matching interface in turn; the one that answers `ping`
-    // is Vaults Bridge.
-    const candidates = [];
-    for (const iface of device.configuration.interfaces) {
-      const alt = iface.alternate;
-      if (
-        alt.interfaceClass === DEVICE_FILTER.classCode &&
-        alt.interfaceSubclass === DEVICE_FILTER.subclassCode &&
-        alt.interfaceProtocol === DEVICE_FILTER.protocolCode
-      ) {
-        const inEp = alt.endpoints.find((e) => e.direction === "in");
-        const outEp = alt.endpoints.find((e) => e.direction === "out");
-        if (inEp && outEp) {
-          candidates.push({
-            ifaceNumber: iface.interfaceNumber,
-            inEp: inEp.endpointNumber,
-            outEp: outEp.endpointNumber,
-          });
-        }
-      }
-    }
+    // Claim only the Passwords interface. Other Prime apps and USB debug
+    // surfaces use different vendor-class identities and different protocols.
+    const { candidates, descriptions } = collectInterfaceCandidates(device);
     if (candidates.length === 0) {
       try { await device.close(); } catch {}
-      return { ok: false, reason: "Open the Passwords app on your Passport Prime, then click the extension again." };
+      console.warn(
+        "[vaults-bridge/webusb] Passport paired but no usable app interface was visible:",
+        descriptions,
+      );
+      return {
+        ok: false,
+        reason:
+          "Passport Prime is paired, but the Passwords USB interface is not available. " +
+          "Keep Passwords open, unplug and reconnect USB, then try again.",
+      };
     }
     debugUsb(
       "[vaults-bridge/webusb] probing",
-      candidates.length,
-      "vendor-class interface(s):",
-      candidates.map((c) => c.ifaceNumber),
+      candidates.map((c) => c.descriptor),
     );
 
     const probeFailures = [];
     for (const c of candidates) {
       try {
         await device.claimInterface(c.ifaceNumber);
+        if (typeof c.alternateSetting === "number") {
+          await device.selectAlternateInterface(c.ifaceNumber, c.alternateSetting);
+        }
       } catch (e) {
         probeFailures.push(`iface ${c.ifaceNumber} claim: ${e?.message || e}`);
         continue;
@@ -149,20 +234,17 @@ export class WebUsbTransport {
     console.warn("[vaults-bridge/webusb] all candidate interfaces failed probe:", probeFailures);
     return {
       ok: false,
-      reason: "Open the Passwords app on your Passport Prime, then click the extension again.",
+      reason:
+        "Passport Prime is paired, but the Passwords USB interface did not respond. " +
+        "Keep Passwords open, unplug and reconnect USB, then try again.",
     };
   }
 
   async _tearDown() {
+    if (this.teardownPromise) return this.teardownPromise;
+    const device = this.device;
+    const ifaceNumber = this.ifaceNumber;
     this.readAbort = true;
-    try {
-      if (this.device && this.ifaceNumber !== null) {
-        await this.device.releaseInterface(this.ifaceNumber);
-      }
-    } catch {}
-    try {
-      if (this.device && this.device.opened) await this.device.close();
-    } catch {}
     this.device = null;
     this.ifaceNumber = null;
     this.inEp = null;
@@ -172,6 +254,21 @@ export class WebUsbTransport {
       entry.reject({ code: 99, message: "disconnected" });
     }
     this.pending.clear();
+    this.teardownPromise = (async () => {
+      try {
+        if (device && ifaceNumber !== null) {
+          await device.releaseInterface(ifaceNumber);
+        }
+      } catch {}
+      try {
+        if (device?.opened) await device.close();
+      } catch {}
+    })();
+    try {
+      await this.teardownPromise;
+    } finally {
+      this.teardownPromise = null;
+    }
   }
 
   async disconnect() {
@@ -285,6 +382,7 @@ export class WebUsbTransport {
       this._writeLine(json).catch((e) => {
         clearTimeout(t);
         if (this.pending.delete(id)) reject(e);
+        this._tearDown().catch(() => {});
       });
     });
   }
@@ -299,4 +397,8 @@ function uid() {
   const b = new Uint8Array(8);
   crypto.getRandomValues(b);
   return Array.from(b, (x) => x.toString(16).padStart(2, "0")).join("");
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }

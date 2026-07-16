@@ -80,6 +80,11 @@ h1 {
 
 .muted { color: var(--fg-muted); }
 .small { font-size: 12px; }
+.help-text {
+  margin: 8px 0 0;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
 
 .card-row {
   display: flex;

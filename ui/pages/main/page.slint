@@ -86,6 +86,7 @@ export component MainPage inherits Rectangle {
         Callbacks.editing-color = 0;
         Callbacks.editing-archived = false;
         Callbacks.editing-error = "";
+        Callbacks.editing-error-field = "";
         Navigate.edit({ version: EditPageVersion.add }, { });
     }
 
@@ -111,6 +112,7 @@ export component MainPage inherits Rectangle {
         Callbacks.editing-color = entry.color;
         Callbacks.editing-archived = entry.archived;
         Callbacks.editing-error = "";
+        Callbacks.editing-error-field = "";
         Navigate.edit({ version: version }, { });
     }
 
@@ -123,12 +125,15 @@ export component MainPage inherits Rectangle {
         Callbacks.editing-color = entry.color;
         Callbacks.editing-archived = entry.archived;
         Callbacks.editing-error = "";
+        Callbacks.editing-error-field = "";
         Navigate.details({ });
     }
 
     // ---- Empty state (no live AND no search query) ----------------------
     if !archive-view && Callbacks.live-count == 0 && Callbacks.search-text == "": ShieldPage {
         ContentSection {
+            spacing: Size.sz6;
+
             HorizontalLayout {
                 alignment: center;
                 WrappedIcon {
@@ -144,8 +149,17 @@ export component MainPage inherits Rectangle {
             }
 
             TextMd {
-                text: "Add one from any website with the browser extension, or create one here.";
-                color: Palette.content-secondary;
+                text: "Keep your website logins encrypted and sealed to this Passport Prime.";
+                color: Palette.content-primary;
+                bold: true;
+                horizontal-alignment: center;
+                wrap: word-wrap;
+            }
+
+            TextMd {
+                text: "Create one here, or save passwords from the browser extension as you sign in.";
+                color: Palette.content-primary;
+                bold: true;
                 horizontal-alignment: center;
                 wrap: word-wrap;
             }
@@ -154,7 +168,7 @@ export component MainPage inherits Rectangle {
         ButtonSection {
             Button {
                 icon: "";
-                label: "New password";
+                label: "Add password";
                 importance: primary;
                 clicked => { go-add(); }
             }
@@ -166,11 +180,12 @@ export component MainPage inherits Rectangle {
         VerticalLayout {
             AppHeader {
                 title: archive-view ? "Archived passwords" : "Passwords";
-                side-padding: Size.sz6;
+                side-padding: Size.sz8;
 
                 if archive-view: IconButton {
                     icon: "chevron-left";
-                    size: Size.sz8;
+                    size: Size.sz10;
+                    icon-size: Size.sz8;
                     importance: Importance.normal;
                     clicked => {
                         Callbacks.archive-mode = false;
@@ -183,7 +198,8 @@ export component MainPage inherits Rectangle {
 
                 if !archive-view && !edit-mode: IconButton {
                     icon: "ellipsis";
-                    size: Size.sz8;
+                    size: Size.sz10;
+                    icon-size: Size.sz8;
                     importance: Importance.normal;
                     clicked => { is-menu-open = !is-menu-open; }
                 }
@@ -288,7 +304,7 @@ export component MainPage inherits Rectangle {
 
         PopupMenuItem {
             label: "Import passwords";
-            icon: "export";
+            icon: "import";
             clicked => {
                 is-menu-open = false;
                 Callbacks.import-source = "";
@@ -342,7 +358,7 @@ export component MainPage inherits Rectangle {
         icon: "export";
         icon-color: Palette.content-brand;
         title: "Export encrypted backup";
-        text: "Choose a passphrase for this backup. You will need it to restore passwords on another Passport.";
+        text: "Choose a passphrase for this backup. You will need it to restore passwords on another Passport Prime.";
 
         TitledInput {
             title: "Passphrase";
@@ -373,6 +389,16 @@ export component MainPage inherits Rectangle {
 
         Button {
             icon: "";
+            label: "Cancel";
+            importance: Importance.tertiary;
+            clicked => {
+                clear-backup-entry();
+                show-backup-export = false;
+            }
+        }
+
+        Button {
+            icon: "";
             label: "Export backup";
             importance: Importance.primary;
             enabled: backup-passphrase != "" && backup-passphrase == backup-passphrase-confirm;
@@ -386,23 +412,13 @@ export component MainPage inherits Rectangle {
                 }
             }
         }
-
-        Button {
-            icon: "";
-            label: "Cancel";
-            importance: Importance.tertiary;
-            clicked => {
-                clear-backup-entry();
-                show-backup-export = false;
-            }
-        }
     }
 
     if show-backup-restore: Modal {
         icon: "import";
         icon-color: Palette.content-brand;
         title: "Restore encrypted backup";
-        text: "Enter the backup passphrase, then choose the backup file. You will review before anything is replaced.";
+        text: "Enter the backup passphrase, then choose the backup file. You can choose what happens to duplicates before anything changes.";
 
         TitledInput {
             title: "Passphrase";
@@ -417,11 +433,9 @@ export component MainPage inherits Rectangle {
 
         Button {
             icon: "";
-            label: "Choose backup";
-            importance: Importance.primary;
-            enabled: backup-passphrase != "";
+            label: "Cancel";
+            importance: Importance.tertiary;
             clicked => {
-                Callbacks.backup-restore-pick(backup-passphrase);
                 clear-backup-entry();
                 show-backup-restore = false;
             }
@@ -429,9 +443,11 @@ export component MainPage inherits Rectangle {
 
         Button {
             icon: "";
-            label: "Cancel";
-            importance: Importance.tertiary;
+            label: "Choose backup";
+            importance: Importance.primary;
+            enabled: backup-passphrase != "";
             clicked => {
+                Callbacks.backup-restore-pick(backup-passphrase);
                 clear-backup-entry();
                 show-backup-restore = false;
             }
@@ -442,7 +458,7 @@ export component MainPage inherits Rectangle {
         icon: "alert";
         icon-color: Palette.content-negative;
         title: "Restore backup?";
-        text: "This backup contains " + Callbacks.backup-restore-count + " passwords.\n\nIf a credential for the same site and username already exists:";
+        text: "This backup contains " + Callbacks.backup-restore-count + " passwords.\n\nFor saved logins with the same site and username:";
 
         Button {
             icon: "";
@@ -514,10 +530,10 @@ export component MainPage inherits Rectangle {
     if Callbacks.import-error == "" && Callbacks.import-count > 0 && Callbacks.import-imported + Callbacks.import-skipped + Callbacks.import-replaced == 0: Modal {
         icon: "import";
         icon-color: Palette.content-brand;
-        title: "Import Passwords?";
+        title: "Import passwords?";
         text: Callbacks.import-source != ""
-            ? "Detected " + Callbacks.import-count + " entries from " + Callbacks.import-source + ".\n\nIf a credential for the same site and username already exists:"
-            : "Detected " + Callbacks.import-count + " entries.\n\nIf a credential for the same site and username already exists:";
+            ? "Detected " + Callbacks.import-count + " passwords from " + Callbacks.import-source + ".\n\nFor saved logins with the same site and username:"
+            : "Detected " + Callbacks.import-count + " passwords.\n\nFor saved logins with the same site and username:";
 
         Button {
             icon: "";
@@ -554,7 +570,7 @@ export component MainPage inherits Rectangle {
         icon: "check";
         icon-color: Palette.content-positive;
         title: "Import complete";
-        text: "Imported " + Callbacks.import-imported + ", replaced " + Callbacks.import-replaced + ", skipped " + Callbacks.import-skipped + ".";
+        text: "Added " + Callbacks.import-imported + ", replaced " + Callbacks.import-replaced + ", skipped " + Callbacks.import-skipped + ".";
         confirm-button-label: "OK";
         confirm-clicked => {
             Callbacks.import-imported = 0;

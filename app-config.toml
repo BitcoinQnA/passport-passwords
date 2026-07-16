@@ -65,6 +65,7 @@ support-url = "https://foundation.xyz"
 "os/usbdev" = [
     "RegisterCapability",
     "RegisterInterface",
+    "RegisterSetupResponder",
     "ReadEndpoint",
     "WriteEndpoint",
     "SetEndpointStalled",

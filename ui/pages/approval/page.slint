@@ -4,7 +4,7 @@
 import { Palette, Size, Importance } from "../../compat/theme.slint";
 import {
     AppHeader, BasePage, PageBody, ContentSection, ButtonSection, Button,
-    SlideToButton, HeadingMd, TextMd, TextSm,
+    HeadingMd, TextMd, TextSm,
 } from "../../compat/widgets.slint";
 import { Callbacks } from "../../callbacks.slint";
 import { ApprovalProps } from "./props.slint";
@@ -47,19 +47,18 @@ export component ApprovalPage inherits BasePage {
             }
 
             ButtonSection {
-                SlideToButton {
-                    label: "Slide to " + Callbacks.approval.action-verb;
-                    info-label: Callbacks.approval.action-verb + " " + Callbacks.approval.origin;
-                    activated-label: Callbacks.approval.action-verb;
-                    activated(id) => {
-                        Callbacks.approve();
-                    }
-                }
                 Button {
                     label: "Reject";
                     importance: Importance.normal;
                     clicked => {
                         Callbacks.reject();
+                    }
+                }
+                Button {
+                    label: Callbacks.approval.action-label;
+                    importance: Importance.primary;
+                    clicked => {
+                        Callbacks.approve();
                     }
                 }
             }

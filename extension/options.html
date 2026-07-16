@@ -23,33 +23,34 @@ SPDX-License-Identifier: GPL-3.0-or-later
           </div>
           <h1>Passwords</h1>
         </div>
-        <p class="subtitle">Settings for the Passport Prime browser extension.</p>
+        <p class="subtitle">Settings for Passwords on Passport Prime.</p>
       </header>
 
       <section class="card">
         <div class="card-head">
-          <h2>Device</h2>
-          <p class="muted">Connect Passport Prime once to give the extension WebUSB access. Reconnect if you replug the device.</p>
+          <h2>Passport Prime</h2>
+          <p class="muted">Open Passwords on Passport Prime, then pair once to give this extension WebUSB access. Pair again after reloading the extension.</p>
         </div>
         <div class="card-row">
           <div class="status-block">
             <span id="pair-dot" class="dot"></span>
             <div>
-              <div class="label">Connection status</div>
+              <div class="label">Pairing status</div>
               <div id="pair-status" class="value">Checking…</div>
             </div>
           </div>
           <div class="actions">
-            <button id="pair" class="primary">Connect Passport Prime</button>
-            <button id="forget" class="secondary">Forget device</button>
+            <button id="pair" class="primary">Pair Passport Prime</button>
+            <button id="forget" class="secondary">Forget pairing</button>
           </div>
         </div>
+        <p class="muted small help-text">If Chrome says no compatible devices were found, keep Passwords open on the device, unplug and reconnect USB, then try pairing again.</p>
       </section>
 
       <section class="card">
         <div class="card-head">
           <h2>Developer tools</h2>
-          <p class="muted">Production talks to Passport Prime over WebUSB. Simulator controls stay hidden unless developer mode is enabled.</p>
+          <p class="muted">Passwords talks to Passport Prime over WebUSB. Simulator controls stay hidden unless developer mode is enabled.</p>
         </div>
         <label class="card-row toggle-row">
           <span>

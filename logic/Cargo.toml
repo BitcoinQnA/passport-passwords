@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: 2026 Foundation Devices, Inc. <hello@foundation.xyz>
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-# Passwords logic crates — vendored into this POC folder so KeyOS-passwords is
+# Passwords logic crates, vendored into this repo so the KeyOS app is
 # self-contained (no external sibling repo needed to build). Its own workspace,
 # excluded from the KeyOS workspace; the app path-depends into it.
 [workspace]

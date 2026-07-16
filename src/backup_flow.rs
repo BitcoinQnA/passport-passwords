@@ -23,7 +23,9 @@ const MAX_BACKUP_BYTES: usize = 4 * 1024 * 1024;
 
 pub type PendingRestore = Arc<Mutex<Option<Vec<CredentialRecord>>>>;
 
-pub fn new_pending_restore() -> PendingRestore { Arc::new(Mutex::new(None)) }
+pub fn new_pending_restore() -> PendingRestore {
+    Arc::new(Mutex::new(None))
+}
 
 #[cfg(not(target_os = "xous"))]
 pub fn export_encrypted_backup(
@@ -130,7 +132,9 @@ pub fn pick_restore_backup(pending: &PendingRestore, passphrase: &[u8], ui_weak:
     }
 }
 
-pub fn cancel_restore(pending: &PendingRestore) { *pending.lock().unwrap() = None; }
+pub fn cancel_restore(pending: &PendingRestore) {
+    *pending.lock().unwrap() = None;
+}
 
 fn set_error(ui_weak: &Weak<AppWindow>, msg: &str) {
     if let Some(ui) = ui_weak.upgrade() {

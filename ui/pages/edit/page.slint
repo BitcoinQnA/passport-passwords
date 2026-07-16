@@ -19,6 +19,7 @@ export component EditPage inherits Rectangle {
     property <string> new-password: Callbacks.editing-password;
     property <int>    new-color: Callbacks.editing-color;
     property <bool>   show-delete-confirm: false;
+    property <bool>   show-password-entry: false;
 
     property <bool> password-has-focus: password-input.has-focus;
     changed password-has-focus => {
@@ -33,7 +34,9 @@ export component EditPage inherits Rectangle {
         new-username = Callbacks.editing-username;
         new-password = Callbacks.editing-password;
         new-color = Callbacks.editing-color;
+        show-password-entry = false;
         Callbacks.editing-error = "";
+        Callbacks.editing-error-field = "";
     }
 
     function title-for-version() -> string {
@@ -42,16 +45,29 @@ export component EditPage inherits Rectangle {
         return "Archived password";
     }
 
+    function field-error(field: string) -> string {
+        if (Callbacks.editing-error-field == field) { return Callbacks.editing-error; }
+        return "";
+    }
+
+    function clear-field-error(field: string) {
+        if (Callbacks.editing-error-field == field) {
+            Callbacks.editing-error = "";
+            Callbacks.editing-error-field = "";
+        }
+    }
+
     BasePage {
         VerticalLayout {
             AppHeader {
                 title: title-for-version();
                 title-color: Palette.content-primary;
-                side-padding: Size.sz6;
+                side-padding: Size.sz8;
 
                 IconButton {
                     icon: "chevron-left";
-                    size: Size.sz8;
+                    size: Size.sz10;
+                    icon-size: Size.sz8;
                     importance: Importance.normal;
                     clicked => { Navigate.backward(); }
                 }
@@ -72,13 +88,11 @@ export component EditPage inherits Rectangle {
                             title: "Website";
                             placeholder: "https://example.com";
                             text: new-origin;
-                            has-notice: Callbacks.editing-error != "";
-                            message: Callbacks.editing-error;
+                            has-notice: field-error("website") != "";
+                            message: field-error("website");
                             edited(text) => {
                                 new-origin = text;
-                                if (Callbacks.editing-error != "") {
-                                    Callbacks.editing-error = "";
-                                }
+                                clear-field-error("website");
                             }
                         }
 
@@ -102,7 +116,12 @@ export component EditPage inherits Rectangle {
                             text: new-label;
                             caps-mode: sentences;
                             enabled: props.version != EditPageVersion.archive;
-                            edited(text) => { new-label = text; }
+                            has-notice: field-error("label") != "";
+                            message: field-error("label");
+                            edited(text) => {
+                                new-label = text;
+                                clear-field-error("label");
+                            }
                         }
 
                         TitledInput {
@@ -110,7 +129,12 @@ export component EditPage inherits Rectangle {
                             placeholder: "alice@example.com";
                             text: new-username;
                             enabled: props.version != EditPageVersion.archive;
-                            edited(text) => { new-username = text; }
+                            has-notice: field-error("username") != "";
+                            message: field-error("username");
+                            edited(text) => {
+                                new-username = text;
+                                clear-field-error("username");
+                            }
                         }
 
                         password-input := TitledInput {
@@ -119,7 +143,20 @@ export component EditPage inherits Rectangle {
                             text: new-password;
                             enabled: props.version != EditPageVersion.archive;
                             visible: props.version != EditPageVersion.archive;
-                            edited(text) => { new-password = text; }
+                            input-type: InputType.password;
+                            show-password: show-password-entry;
+                            has-notice: field-error("password") != "";
+                            message: field-error("password");
+                            edited(text) => {
+                                new-password = text;
+                                clear-field-error("password");
+                            }
+                        }
+
+                        if field-error("form") != "": TextSm {
+                            text: field-error("form");
+                            color: Palette.content-notice;
+                            horizontal-alignment: center;
                         }
 
                         if props.version != EditPageVersion.archive: Button {
@@ -128,6 +165,15 @@ export component EditPage inherits Rectangle {
                             importance: Importance.secondary;
                             clicked => {
                                 new-password = Callbacks.generate-strong();
+                            }
+                        }
+
+                        if props.version != EditPageVersion.archive && new-password != "": Button {
+                            icon: "";
+                            label: show-password-entry ? "Hide password" : "Show password";
+                            importance: Importance.tertiary;
+                            clicked => {
+                                show-password-entry = !show-password-entry;
                             }
                         }
 
@@ -150,14 +196,6 @@ export component EditPage inherits Rectangle {
 
                 if props.version == EditPageVersion.edit: ButtonSection {
                     Button {
-                        icon: "";
-                        label: "Save";
-                        importance: Importance.primary;
-                        clicked => {
-                            Callbacks.edit-save(Callbacks.editing-uuid, new-label, new-color, new-username, new-password);
-                        }
-                    }
-                    Button {
                         icon: "archive";
                         label: "Archive password";
                         importance: Importance.secondary;
@@ -168,11 +206,27 @@ export component EditPage inherits Rectangle {
                             });
                         }
                     }
+                    Button {
+                        icon: "";
+                        label: "Save";
+                        importance: Importance.primary;
+                        clicked => {
+                            Callbacks.edit-save(Callbacks.editing-uuid, new-label, new-color, new-username, new-password);
+                        }
+                    }
                 }
 
                 if props.version == EditPageVersion.archive: ButtonSection {
                     Button {
-                        icon: "export";
+                        icon: "";
+                        label: "Delete forever";
+                        importance: Importance.negative;
+                        clicked => {
+                            show-delete-confirm = true;
+                        }
+                    }
+                    Button {
+                        icon: "import";
                         label: "Restore";
                         importance: Importance.primary;
                         clicked => {
@@ -180,14 +234,6 @@ export component EditPage inherits Rectangle {
                             Navigate.main({ version: CardPageVersion.archive }, {
                                 replace: true, animate: Animate.None
                             });
-                        }
-                    }
-                    Button {
-                        icon: "";
-                        label: "Delete forever";
-                        importance: Importance.negative;
-                        clicked => {
-                            show-delete-confirm = true;
                         }
                     }
                 }
@@ -198,7 +244,7 @@ export component EditPage inherits Rectangle {
     if show-delete-confirm: ConfirmationModal {
         icon: "alert";
         title: "Delete this password?";
-        text: "The password is sealed to this device and can't be recovered once removed. Archived passwords are not backed up.";
+        text: "This removes the password from this Passport Prime. Only continue if you no longer need it, or you have a current encrypted backup.";
         cancel-button-label: "Cancel";
         confirm-button-label: "Delete forever";
         critical: true;

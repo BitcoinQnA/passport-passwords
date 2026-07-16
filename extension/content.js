@@ -5,7 +5,7 @@
 // Two responsibilities:
 //   1) handle popup-driven read-form / fill messages from the service worker
 //   2) attach a small "Passwords" overlay button next to password fields
-//      that lets the user release a credential from Prime
+//      that lets the user release a credential from Passport Prime
 //
 // There is intentionally NO page-world API: any privileged action must be
 // initiated by a user gesture (popup click or overlay click). Web pages
@@ -14,13 +14,42 @@
 const PRIME_TEAL = "#269eb5";
 const CLICK_DEBOUNCE_MS = 600;
 
-// Suppress the save-on-change prompt when the password value matches one
-// we just filled — avoids "save this?" prompts immediately after Fill.
-const FILLED_VALUES = new WeakMap();
+// Suppress the save-on-change prompt when the username and password match a
+// credential we just filled. The save watcher observes synthetic `change`
+// events too, so this record must be set before dispatching those events.
+const FILLED_CREDENTIALS = new WeakMap();
+const SAVE_PROMPT_DISMISSERS = new WeakMap();
 // Per-input flag: user already saw + handled (saved or dismissed) the
 // prompt for the current value. Cleared if they type a different value.
 const PROMPTED_VALUES = new WeakMap();
 const ACCOUNT_MENUS = new WeakMap();
+
+function fillFailureLabel(e) {
+  switch (e?.code) {
+    case 3:
+      return "No saved login";
+    case 4:
+      return "Rejected";
+    case 5:
+      return "Timed out";
+    case 6:
+      return "Unlock Passport";
+    case 7:
+      return "Try again";
+    case 10:
+      return "Choose account";
+    default:
+      break;
+  }
+
+  const message = String(e?.message || e || "");
+  if (/No Passport Prime paired/i.test(message)) return "Pair device";
+  if (/USB interface is not available/i.test(message)) return "Reconnect USB";
+  if (/USB interface did not respond/i.test(message)) return "Try repair";
+  if (/Open the Passwords app/i.test(message)) return "Reconnect USB";
+  if (/disconnected|reconnect|not connected/i.test(message)) return "Reconnect USB";
+  return "Failed";
+}
 
 // Background -> content (popup-driven actions).
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
@@ -58,12 +87,12 @@ function fillForm(username, password) {
   const passwords = [...document.querySelectorAll('input[type="password"]')];
   const passwordInput = passwords[0];
   if (!passwordInput) return false;
-  setFieldValue(passwordInput, password);
-  FILLED_VALUES.set(passwordInput, password);
+  const userField = findUsernameField(passwordInput);
   if (username) {
-    const userField = findUsernameField(passwordInput);
     if (userField) setFieldValue(userField, username);
   }
+  rememberFilledCredential(passwordInput, username, password);
+  setFieldValue(passwordInput, password);
   return true;
 }
 
@@ -88,8 +117,8 @@ function attachOverlay(input) {
 
   const btn = document.createElement("button");
   btn.type = "button";
-  btn.textContent = "Passwords";
-  btn.title = "Fill from Passport Prime";
+  btn.textContent = "Fill with Passport";
+  btn.title = "Fill with Passport Prime";
   btn.style.cssText = [
     "pointer-events:auto",
     "padding:5px 10px",
@@ -108,8 +137,10 @@ function attachOverlay(input) {
 
   function reposition() {
     const r = input.getBoundingClientRect();
-    host.style.top = `${window.scrollY + r.top + r.height + 4}px`;
-    host.style.left = `${window.scrollX + r.left}px`;
+    const btnWidth = btn.offsetWidth || 120;
+    const btnHeight = btn.offsetHeight || 24;
+    host.style.top = `${window.scrollY + r.top + (r.height - btnHeight) / 2}px`;
+    host.style.left = `${window.scrollX + r.right - btnWidth - 8}px`;
   }
   reposition();
   window.addEventListener("scroll", reposition, true);
@@ -125,7 +156,7 @@ function attachOverlay(input) {
     if (inflight || now - lastClick < CLICK_DEBOUNCE_MS) return;
     lastClick = now;
     inflight = true;
-    btn.textContent = "Approve on device…";
+    btn.textContent = "Approve on Passport...";
     btn.disabled = true;
     try {
       const resp = await chrome.runtime.sendMessage({ action: "list-from-content" });
@@ -144,29 +175,29 @@ function attachOverlay(input) {
       }
       btn.textContent = "Choose account";
       showAccountMenu(input, credentials, async (username) => {
-        btn.textContent = "Approve on device…";
+        btn.textContent = "Approve on Passport...";
         btn.disabled = true;
         try {
           await fillCredential(input, username);
           btn.textContent = "Filled";
           setTimeout(() => resetButton(btn, () => { inflight = false; }), 1500);
-        } catch {
-          btn.textContent = "Failed";
+        } catch (e) {
+          btn.textContent = fillFailureLabel(e);
           setTimeout(() => resetButton(btn, () => { inflight = false; }), 2000);
         }
       }, () => {
         resetButton(btn, () => { inflight = false; });
       });
-    } catch {
+    } catch (e) {
       // Don't surface device-side error text to the page DOM.
-      btn.textContent = "Failed";
+      btn.textContent = fillFailureLabel(e);
       setTimeout(() => resetButton(btn, () => { inflight = false; }), 2000);
     }
   });
 }
 
 function resetButton(btn, after) {
-  btn.textContent = "Passwords";
+  btn.textContent = "Fill with Passport";
   btn.disabled = false;
   after?.();
 }
@@ -180,8 +211,8 @@ async function fillCredential(input, username) {
   const { username: releasedUsername, password } = resp.result;
   const userField = findUsernameField(input);
   if (userField && releasedUsername) setFieldValue(userField, releasedUsername);
+  rememberFilledCredential(input, releasedUsername, password);
   setFieldValue(input, password);
-  FILLED_VALUES.set(input, password);
 }
 
 function showAccountMenu(input, credentials, onPick, onDismiss) {
@@ -214,7 +245,7 @@ function showAccountMenu(input, credentials, onPick, onDismiss) {
     const item = document.createElement("button");
     item.type = "button";
     item.textContent = credential.label
-      ? `${credential.label} — ${credential.username}`
+      ? `${credential.label} - ${credential.username}`
       : credential.username;
     item.title = credential.username;
     item.style.cssText = [
@@ -295,7 +326,7 @@ function dismissAccountMenu(input) {
 //
 // One per password field. When the user types a value that we didn't fill
 // (and isn't empty), show a small floating banner offering to save the
-// credential to Prime. Click Save -> background's save-from-content path.
+// credential to Passport Prime. Click Save -> background's save-from-content path.
 // Re-typing a different value clears the "already prompted" guard so the
 // new value can be offered too.
 
@@ -313,11 +344,18 @@ function attachSavePrompt(input) {
       promptEl = null;
     }
   }
+  SAVE_PROMPT_DISMISSERS.set(input, dismissPrompt);
 
   function shouldPrompt() {
     const value = input.value;
     if (!value) return false;
-    if (FILLED_VALUES.get(input) === value) return false;
+    const filled = FILLED_CREDENTIALS.get(input);
+    const userField = findUsernameField(input);
+    const username = userField ? userField.value : "";
+    if (
+      filled?.password === value &&
+      (!userField || filled.username === username)
+    ) return false;
     if (PROMPTED_VALUES.get(input) === value) return false;
     return true;
   }
@@ -330,7 +368,7 @@ function attachSavePrompt(input) {
       const userField = findUsernameField(input);
       const username = userField ? userField.value : "";
       PROMPTED_VALUES.set(input, password);
-      setPromptState(promptEl, "pending", "Approve on device…");
+      setPromptState(promptEl, "pending", "Approve on Passport...");
       try {
         const resp = await chrome.runtime.sendMessage({
           action: "save-from-content",
@@ -338,13 +376,13 @@ function attachSavePrompt(input) {
           password,
         });
         if (resp?.error) throw resp.error;
-        setPromptState(promptEl, "ok", "Saved to Prime");
+        setPromptState(promptEl, "ok", "Saved to Passport");
         setTimeout(dismissPrompt, 1500);
       } catch (e) {
         const code = e?.code;
         const text =
           code === 4
-            ? "Rejected on Prime"
+            ? "Rejected on Passport"
             : code === 1 && /username/.test(e?.message || "")
               ? "Username required"
               : "Save failed";
@@ -407,7 +445,7 @@ function renderSavePrompt(input, onSave, onDismiss) {
   ].join(";");
 
   const label = document.createElement("span");
-  label.textContent = "Save this password to Prime?";
+  label.textContent = "Save this password to Passport?";
   label.style.flex = "1";
   wrap.appendChild(label);
 
@@ -500,6 +538,14 @@ function setFieldValue(input, value) {
   setter.call(input, value);
   input.dispatchEvent(new Event("input", { bubbles: true }));
   input.dispatchEvent(new Event("change", { bubbles: true }));
+}
+
+function rememberFilledCredential(input, username, password) {
+  FILLED_CREDENTIALS.set(input, {
+    username: String(username || ""),
+    password,
+  });
+  SAVE_PROMPT_DISMISSERS.get(input)?.();
 }
 
 function scan() {

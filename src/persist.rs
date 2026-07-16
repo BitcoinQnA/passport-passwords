@@ -39,7 +39,9 @@ mod imp {
             Self { backing }
         }
 
-        pub fn bytes(&self) -> &[u8] { self.backing.as_slice() }
+        pub fn bytes(&self) -> &[u8] {
+            self.backing.as_slice()
+        }
 
         /// Replace the on-disk blob. FileBacked's guard pattern writes
         /// immediately when the guard drops, atomically.
@@ -81,7 +83,9 @@ mod imp {
         })
     }
 
-    fn keys_path() -> PathBuf { data_dir().join(KEYS_FILE) }
+    fn keys_path() -> PathBuf {
+        data_dir().join(KEYS_FILE)
+    }
 
     pub struct KeystoreStore;
 

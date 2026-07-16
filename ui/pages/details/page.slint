@@ -72,11 +72,12 @@ export component DetailsPage inherits Rectangle {
             AppHeader {
                 title: Callbacks.editing-label != "" ? Callbacks.editing-label : "Password";
                 title-color: Palette.content-primary;
-                side-padding: Size.sz6;
+                side-padding: Size.sz8;
 
                 IconButton {
                     icon: "chevron-left";
-                    size: Size.sz8;
+                    size: Size.sz10;
+                    icon-size: Size.sz8;
                     importance: Importance.normal;
                     clicked => { Navigate.backward(); }
                 }
@@ -134,7 +135,7 @@ export component DetailsPage inherits Rectangle {
     if show-reveal-confirm: ConfirmationModal {
         icon: "alert";
         title: "Reveal password?";
-        text: "The next screen will show the password in plaintext. Only do this where nobody can see your screen.";
+        text: "The next screen will show the password in plaintext. Only do this where nobody else can see your screen.";
         cancel-button-label: "Cancel";
         confirm-button-label: "Reveal";
         critical: true;

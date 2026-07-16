@@ -8,7 +8,7 @@ export global Callbacks {
     in-out property <ApprovalState> approval: {
         active: false,
         title: "",
-        action-verb: "release",
+        action-label: "Release password",
         origin: "",
         username: "",
     };
@@ -29,6 +29,7 @@ export global Callbacks {
     in-out property <string> editing-password: "";
     in-out property <int>    editing-color: 0;
     in-out property <bool>   editing-archived: false;
+    in-out property <string> editing-error-field: "";
     in-out property <string> editing-error: "";
 
     // Status banner (kept off-UI for now; transport writes here).

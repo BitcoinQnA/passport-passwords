@@ -40,6 +40,12 @@ in the extension's JS). Keeping them together means the firmware and the
 extension move in lockstep and share one version. See
 [`docs/PROTOCOL.md`](docs/PROTOCOL.md) for the wire format.
 
+This repository is the only source of truth for Passwords. Do not edit a copy
+inside a KeyOS checkout directly. Use
+[`scripts/stage-keyos-app.sh`](scripts/stage-keyos-app.sh) to refresh the
+disposable KeyOS build copy from this repo and apply the required KeyOS
+integration patch.
+
 ## What it does
 
 On the device, the **Passwords** app manages origin-bound credential records:
@@ -65,8 +71,8 @@ browser, so a host-side attacker watching USB traffic can't read it.
   Passport and the master key only exists in RAM while the app is unlocked.
 - **Approval gate.** Nothing is released silently. Every `release_credential`
   routes through the `Approver` trait (`logic/vaults-bridge-core/src/approval.rs`),
-  which drives the on-device hold-to-confirm approve/reject screen. The extension
-  can only ever obtain a credential the device owner explicitly approved.
+  which drives the on-device approve/reject screen. The extension can only ever
+  obtain a credential the device owner explicitly approved.
 - **Origin-bound, host-verified.** Each request carries a strict origin (scheme +
   host + explicit non-default port, no path/query). The extension's background
   worker derives the requesting tab's origin authoritatively from `sender.tab.url`
@@ -134,24 +140,27 @@ crates such as `slint_keyos_platform`, `security`, `server`, `usb`, `fs`, and
 integration, and [`TESTING.md`](TESTING.md) for the end-to-end test. In a KeyOS
 checkout the app lives at `apps/gui-app-passwords`.
 
-Dropping the app into a KeyOS tree needs three small integration edits
-(workspace member, launcher tile, dev-app lists) — see
+Dropping the app into a KeyOS tree needs four integration edits (workspace
+member, launcher tile, dev-app lists, and the dynamic USB interface lifecycle)
+plus monorepo-relative Cargo paths. Stage everything from this repo with:
+
+```bash
+./scripts/stage-keyos-app.sh /path/to/KeyOS-dev
+```
+
+The exact edits are documented in
 [`docs/KEYOS-PATCHES.md`](docs/KEYOS-PATCHES.md) and
-[`docs/keyos-integration.patch`](docs/keyos-integration.patch). The on-device
-WebUSB transport relies on USB (PIO) stack fixes that are already present in the
-`dev-v1.3.0` trunk (the same fixes the Nostr Signer validated); no separate USB
-patch is required.
+[`docs/keyos-integration.patch`](docs/keyos-integration.patch).
 
 The extension installs unpacked (`chrome://extensions` → Developer mode → Load
 unpacked → `extension/`); see [`extension/README.md`](extension/README.md).
 
 ## Status
 
-Public-release hardening branch in progress. The core now supports exact-origin
-matching, account selection for multiple logins, transactional remote saves,
-approval timeouts, stronger generated-password guarantees, and portable
-encrypted backup/restore. The extension still ships as a sideloaded Chromium
-MV3 build; simulator transport is treated as a developer-only feature.
+The core supports exact-origin matching, account selection for multiple logins,
+transactional remote saves, approval timeouts, stronger generated-password
+guarantees, and portable encrypted backup/restore. The extension ships as a
+sideloaded Chromium MV3 build; simulator transport is developer-only.
 
 ## License
 

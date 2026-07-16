@@ -36,7 +36,9 @@ pub type PendingRecords = Arc<Mutex<Option<Vec<ImportItem>>>>;
 #[cfg(target_os = "xous")]
 const MAX_NOTES_BYTES: usize = 2048;
 
-pub fn new_pending() -> PendingRecords { Arc::new(Mutex::new(None)) }
+pub fn new_pending() -> PendingRecords {
+    Arc::new(Mutex::new(None))
+}
 
 /// Hosted-simulator stub. The hosted target doesn't have access to the
 /// system file picker. Surface a friendly error instead of failing
@@ -200,7 +202,9 @@ pub fn policy_from_int(p: i32) -> ImportPolicy {
     }
 }
 
-pub fn cancel(pending: &PendingRecords) { *pending.lock().unwrap() = None; }
+pub fn cancel(pending: &PendingRecords) {
+    *pending.lock().unwrap() = None;
+}
 
 #[cfg(target_os = "xous")]
 fn set_error(ui_weak: &Weak<AppWindow>, msg: &str) {

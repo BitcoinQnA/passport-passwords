@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Foundation Devices, Inc. <hello@foundation.xyz>
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { Images, Theme } from "@ui/theme.slint";
+import { Images } from "@ui/theme.slint";
 export { Images }
 
 export global Size {
@@ -58,6 +58,15 @@ export global CurrentTheme {
     out property <bool> is-light: palette == Palettes.light;
 }
 
+export global BrandColor {
+    out property <brush> background: #ffffffff;
+    out property <brush> primary: #009db9ff;
+    out property <brush> primary-hover: #20b8d4ff;
+    out property <brush> primary-pressed: #006f83ff;
+    out property <brush> danger: #ff3333ff;
+    out property <brush> success: #16a34aff;
+}
+
 export global Palette {
     out property <brush> content-button: #ffffffff;
     out property <brush> content-button-disabled: #ffffff99;
@@ -68,42 +77,42 @@ export global Palette {
     out property <brush> content-secondary-inverse: CurrentTheme.is-dark ? #514d4fff : #d5d4d5ff;
     out property <brush> content-tertiary-inverse: CurrentTheme.is-dark ? #767374ff : #959394ff;
     out property <brush> content-disabled: #959394ff;
-    out property <brush> content-brand: Theme.palette-primary;
-    out property <brush> content-link: Theme.palette-primary;
-    out property <brush> content-link-pressed: Theme.palette-primary-pressed;
+    out property <brush> content-brand: BrandColor.primary;
+    out property <brush> content-link: BrandColor.primary;
+    out property <brush> content-link-pressed: BrandColor.primary-pressed;
     out property <brush> content-notice: #d97706ff;
     out property <brush> content-notice-bold: #b45309ff;
-    out property <brush> content-negative: Theme.palette-danger;
+    out property <brush> content-negative: BrandColor.danger;
     out property <brush> content-negative-bold: #b52424ff;
-    out property <brush> content-positive: Theme.color-success;
+    out property <brush> content-positive: BrandColor.success;
     out property <brush> content-positive-bold: #15803dff;
 
-    out property <brush> background-primary: CurrentTheme.is-dark ? #111111ff : Theme.palette-background;
+    out property <brush> background-primary: CurrentTheme.is-dark ? #111111ff : BrandColor.background;
     out property <brush> background-primary-alternative: CurrentTheme.is-dark ? #2d292bff : #f3f2f2ff;
     out property <brush> background-hover: CurrentTheme.is-dark ? #3b3839ff : #e3e2e2ff;
     out property <brush> background-pressed: CurrentTheme.is-dark ? #4a4648ff : #d5d4d5ff;
     out property <brush> background-selected: #009db926;
     out property <brush> background-disabled: CurrentTheme.is-dark ? #3b3839ff : #e3e2e2ff;
-    out property <brush> background-brand: Theme.palette-primary;
-    out property <brush> background-brand-hover: Theme.color-primary-light;
-    out property <brush> background-brand-pressed: Theme.palette-primary-pressed;
+    out property <brush> background-brand: BrandColor.primary;
+    out property <brush> background-brand-hover: BrandColor.primary-hover;
+    out property <brush> background-brand-pressed: BrandColor.primary-pressed;
     out property <brush> background-brand-disabled: #009db966;
     out property <brush> background-notice: #d97706ff;
     out property <brush> background-notice-subtle: #d9770626;
-    out property <brush> background-negative: Theme.palette-danger;
+    out property <brush> background-negative: BrandColor.danger;
     out property <brush> background-negative-subtle: #ff333326;
-    out property <brush> background-positive: Theme.color-success;
+    out property <brush> background-positive: BrandColor.success;
     out property <brush> background-positive-subtle: #16a34a26;
 
     out property <brush> border-primary: CurrentTheme.is-dark ? #767374ff : #d5d4d5ff;
     out property <brush> border-secondary: CurrentTheme.is-dark ? #514d4fff : #e3e2e2ff;
     out property <brush> border-tertiary: CurrentTheme.is-dark ? #3b3839ff : #f3f2f2ff;
     out property <brush> border-disabled: #95939466;
-    out property <brush> border-brand: Theme.palette-primary;
-    out property <brush> border-focus: Theme.palette-primary;
+    out property <brush> border-brand: BrandColor.primary;
+    out property <brush> border-focus: BrandColor.primary;
     out property <brush> border-notice: #d97706ff;
-    out property <brush> border-negative: Theme.palette-danger;
-    out property <brush> border-positive: Theme.color-success;
+    out property <brush> border-negative: BrandColor.danger;
+    out property <brush> border-positive: BrandColor.success;
 
     out property <brush> transparent: #ffffff00;
     out property <brush> black: #000000ff;

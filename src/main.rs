@@ -14,7 +14,7 @@ use std::{
         Arc, Mutex,
     },
     thread,
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use async_trait::async_trait;
@@ -46,6 +46,7 @@ const APPROVAL_TIMEOUT: Duration = Duration::from_secs(60);
 struct PendingApproval {
     id: u64,
     tx: oneshot::Sender<ApprovalDecision>,
+    deadline: Instant,
 }
 
 fn app_main(_cx: AppContext, ui: AppWindow) {
@@ -86,6 +87,7 @@ fn app_main(_cx: AppContext, ui: AppWindow) {
     // Approval slot: drained on user tap.
     let pending_tx: Arc<Mutex<Option<PendingApproval>>> = Arc::new(Mutex::new(None));
     let next_approval_id = Arc::new(AtomicU64::new(1));
+    start_approval_timeout_worker(pending_tx.clone(), ui.as_weak());
 
     {
         let pending_tx = pending_tx.clone();
@@ -158,16 +160,16 @@ fn app_main(_cx: AppContext, ui: AppWindow) {
                   password: SharedString,
                   label: SharedString,
                   color: i32| {
-                if let Err(msg) =
+                if let Err(err) =
                     validate_new_fields(origin.as_str(), username.as_str(), password.as_str(), label.as_str())
                 {
-                    set_editing_error(&weak, msg);
+                    set_editing_error(&weak, err.field, &err.message);
                     return;
                 }
                 let canonical = match Origin::parse(origin.as_str()) {
                     Ok(o) => o.as_str().to_string(),
                     Err(e) => {
-                        set_editing_error(&weak, &format!("{e}"));
+                        set_editing_error(&weak, "website", &format!("{e}"));
                         return;
                     }
                 };
@@ -182,13 +184,13 @@ fn app_main(_cx: AppContext, ui: AppWindow) {
                     if let Err(e) = persist_keystore(&ks, &store) {
                         log::warn!("persist failed: {e}");
                         ks.restore_snapshot(snapshot);
-                        set_editing_error(&weak, "Could not save password. Try again.");
+                        set_editing_error(&weak, "form", "Could not save password. Try again.");
                         return;
                     }
                 }
                 state.lock().unwrap().refresh_credentials();
                 if let Some(ui) = weak.upgrade() {
-                    ui.global::<Callbacks>().set_editing_error("".into());
+                    clear_editing_error(&weak);
                     ui.global::<Navigate>().invoke_backward();
                 }
             },
@@ -208,8 +210,8 @@ fn app_main(_cx: AppContext, ui: AppWindow) {
                   username: SharedString,
                   password: SharedString| {
                 let Some(id) = parse_uuid(&uuid) else { return };
-                if let Err(msg) = validate_edit_fields(label.as_str(), username.as_str(), password.as_str()) {
-                    set_editing_error(&weak, msg);
+                if let Err(err) = validate_edit_fields(label.as_str(), username.as_str(), password.as_str()) {
+                    set_editing_error(&weak, err.field, &err.message);
                     return;
                 }
                 {
@@ -232,12 +234,13 @@ fn app_main(_cx: AppContext, ui: AppWindow) {
                     if let Err(e) = persist_keystore(&ks, &store) {
                         log::warn!("persist failed: {e}");
                         ks.restore_snapshot(snapshot);
-                        set_editing_error(&weak, "Could not save changes. Try again.");
+                        set_editing_error(&weak, "form", "Could not save changes. Try again.");
                         return;
                     }
                 }
                 state.lock().unwrap().refresh_credentials();
                 if let Some(ui) = weak.upgrade() {
+                    clear_editing_error(&weak);
                     ui.global::<Navigate>().invoke_backward();
                 }
             },
@@ -582,48 +585,24 @@ impl Approver for SlintApprover {
         // request before the user tapped), reject it explicitly so its
         // future resolves cleanly. Without this, the prior sender is
         // silently dropped and its OneshotFuture observes Disconnected.
-        if let Some(old) = self.pending_tx.lock().unwrap().replace(PendingApproval { id, tx }) {
+        if let Some(old) = self.pending_tx.lock().unwrap().replace(PendingApproval {
+            id,
+            tx,
+            deadline: Instant::now() + APPROVAL_TIMEOUT,
+        }) {
             let _ = old.tx.send(ApprovalDecision::Reject);
-        }
-
-        {
-            let pending_tx = self.pending_tx.clone();
-            let weak = self.ui_weak.clone();
-            thread::spawn(move || {
-                thread::sleep(APPROVAL_TIMEOUT);
-                let timed_out = {
-                    let mut slot = pending_tx.lock().unwrap();
-                    if slot.as_ref().map(|p| p.id) == Some(id) {
-                        let pending = slot.take().unwrap();
-                        let _ = pending.tx.send(ApprovalDecision::Timeout);
-                        true
-                    } else {
-                        false
-                    }
-                };
-                if timed_out {
-                    let _ = slint_keyos_platform::slint::invoke_from_event_loop(move || {
-                        if let Some(ui) = weak.upgrade() {
-                            let mut s = ui.global::<Callbacks>().get_approval();
-                            s.active = false;
-                            ui.global::<Callbacks>().set_approval(s);
-                            ui.global::<Navigate>().invoke_backward();
-                        }
-                    });
-                }
-            });
         }
 
         let weak = self.ui_weak.clone();
         let r = req.clone();
         let title = r.action.title().to_string();
-        let action_verb = action_verb(r.action).to_string();
+        let action_label = action_label(r.action).to_string();
         let scheduled = slint_keyos_platform::slint::invoke_from_event_loop(move || {
             if let Some(ui) = weak.upgrade() {
                 ui.global::<Callbacks>().set_approval(crate::ApprovalState {
                     active: true,
                     title: title.into(),
-                    action_verb: action_verb.into(),
+                    action_label: action_label.into(),
                     origin: r.origin.into(),
                     username: r.username.into(),
                 });
@@ -680,59 +659,118 @@ fn clear_approval(ui_weak: &slint_keyos_platform::slint::Weak<AppWindow>) {
     }
 }
 
-fn set_editing_error(ui_weak: &slint_keyos_platform::slint::Weak<AppWindow>, msg: &str) {
-    if let Some(ui) = ui_weak.upgrade() {
-        ui.global::<Callbacks>().set_editing_error(msg.into());
+fn start_approval_timeout_worker(
+    pending_tx: Arc<Mutex<Option<PendingApproval>>>,
+    weak: slint_keyos_platform::slint::Weak<AppWindow>,
+) {
+    let result = thread::Builder::new().name("passwords-approval-timeout".into()).spawn(move || loop {
+        thread::sleep(Duration::from_millis(250));
+        let timed_out = match pending_tx.lock() {
+            Ok(mut slot)
+                if slot.as_ref().map(|pending| Instant::now() >= pending.deadline).unwrap_or(false) =>
+            {
+                if let Some(pending) = slot.take() {
+                    let _ = pending.tx.send(ApprovalDecision::Timeout);
+                    true
+                } else {
+                    false
+                }
+            }
+            Ok(_) => false,
+            Err(_) => {
+                log::error!("approval timeout state poisoned; worker exiting");
+                return;
+            }
+        };
+        if timed_out {
+            let weak = weak.clone();
+            let _ = slint_keyos_platform::slint::invoke_from_event_loop(move || {
+                if let Some(ui) = weak.upgrade() {
+                    let mut s = ui.global::<Callbacks>().get_approval();
+                    s.active = false;
+                    ui.global::<Callbacks>().set_approval(s);
+                    ui.global::<Navigate>().invoke_backward();
+                }
+            });
+        }
+    });
+    if let Err(e) = result {
+        log::error!("approval timeout worker failed to start: {e}");
     }
 }
 
-fn validate_new_fields(
-    origin: &str,
-    username: &str,
-    password: &str,
-    label: &str,
-) -> Result<(), &'static str> {
+struct FieldError {
+    field: &'static str,
+    message: String,
+}
+
+impl FieldError {
+    fn new(field: &'static str, message: impl Into<String>) -> Self {
+        Self { field, message: message.into() }
+    }
+}
+
+fn clear_editing_error(ui_weak: &slint_keyos_platform::slint::Weak<AppWindow>) {
+    if let Some(ui) = ui_weak.upgrade() {
+        let cb = ui.global::<Callbacks>();
+        cb.set_editing_error_field("".into());
+        cb.set_editing_error("".into());
+    }
+}
+
+fn set_editing_error(ui_weak: &slint_keyos_platform::slint::Weak<AppWindow>, field: &'static str, msg: &str) {
+    if let Some(ui) = ui_weak.upgrade() {
+        let cb = ui.global::<Callbacks>();
+        cb.set_editing_error_field(field.into());
+        cb.set_editing_error(msg.into());
+    }
+}
+
+fn validate_new_fields(origin: &str, username: &str, password: &str, label: &str) -> Result<(), FieldError> {
     if origin.trim().is_empty() {
-        return Err("Website is required.");
+        return Err(FieldError::new("website", "Website is required."));
     }
     if origin.len() > MAX_ORIGIN_BYTES {
-        return Err("Website is too long.");
+        return Err(FieldError::new("website", "Website is too long."));
+    }
+    if let Err(e) = Origin::parse(origin) {
+        return Err(FieldError::new("website", format!("{e}")));
     }
     validate_edit_fields(label, username, password)?;
     if password.is_empty() {
-        return Err("Password is required.");
+        return Err(FieldError::new("password", "Password is required."));
     }
     Ok(())
 }
 
-fn validate_edit_fields(label: &str, username: &str, password: &str) -> Result<(), &'static str> {
+fn validate_edit_fields(label: &str, username: &str, password: &str) -> Result<(), FieldError> {
     if label.len() > MAX_LABEL_BYTES {
-        return Err("Label is too long.");
+        return Err(FieldError::new("label", "Label is too long."));
     }
     if username.trim().is_empty() {
-        return Err("Username is required.");
+        return Err(FieldError::new("username", "Username is required."));
     }
     if username.len() > MAX_USERNAME_BYTES {
-        return Err("Username is too long.");
+        return Err(FieldError::new("username", "Username is too long."));
     }
     if password.len() > MAX_PASSWORD_BYTES {
-        return Err("Password is too long.");
+        return Err(FieldError::new("password", "Password is too long."));
     }
     Ok(())
 }
 
 fn parse_uuid(s: &SharedString) -> Option<Uuid> { Uuid::parse_str(s.as_str()).ok() }
 
-fn action_verb(action: ApprovalAction) -> &'static str {
+fn action_label(action: ApprovalAction) -> &'static str {
     match action {
-        ApprovalAction::Release => "release",
-        ApprovalAction::Save => "save",
-        ApprovalAction::Update => "update",
-        ApprovalAction::RestoreAndUpdate => "restore",
-        ApprovalAction::Generate => "generate",
-        ApprovalAction::GenerateAndUpdate => "generate",
-        ApprovalAction::GenerateAndRestore => "generate",
-        ApprovalAction::Import => "import",
+        ApprovalAction::Release => "Release password",
+        ApprovalAction::Save => "Save password",
+        ApprovalAction::Update => "Update password",
+        ApprovalAction::RestoreAndUpdate => "Restore and update",
+        ApprovalAction::Generate => "Generate password",
+        ApprovalAction::GenerateAndUpdate => "Generate new password",
+        ApprovalAction::GenerateAndRestore => "Restore and generate",
+        ApprovalAction::Import => "Import passwords",
     }
 }
 

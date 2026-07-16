@@ -3,6 +3,20 @@
 
 const $ = (id) => document.getElementById(id);
 
+const FOUNDATION_PASSPORT_FILTER = {
+  vendorId: 0x1307,
+  productId: 0x0165,
+};
+
+const PAIRING_FILTERS = [
+  FOUNDATION_PASSPORT_FILTER,
+  {
+    classCode: 0xff,
+    subclassCode: 0x50,
+    protocolCode: 0x01,
+  },
+];
+
 $("open-options").addEventListener("click", () => {
   chrome.runtime.openOptionsPage();
 });
@@ -18,6 +32,13 @@ function setStatus(state, text) {
   pill.classList.remove("pill-pending", "pill-ok", "pill-err");
   pill.classList.add(`pill-${state}`);
   $("status-text").textContent = text;
+  $("pair").classList.toggle("hidden", state !== "err");
+}
+
+async function resetUsbTransport() {
+  try {
+    await chrome.runtime.sendMessage({ action: "reset-usb-transport" });
+  } catch {}
 }
 
 function setResult(kind, text) {
@@ -33,29 +54,52 @@ function setResult(kind, text) {
 }
 
 function friendlyError(e) {
+  const message = String(e?.message || e || "");
   switch (e?.code) {
     case 3:
       return {
         kind: "info",
-        text: "No password saved for this site yet. Type a username and tap Save password.",
+        text: "No password saved for this site yet. Type a username and choose Save to Passport.",
       };
     case 4:
-      return { kind: "info", text: "Request rejected on Prime." };
+      return { kind: "info", text: "Request rejected on Passport." };
     case 5:
-      return { kind: "err", text: "Prime didn't respond in time. Try again." };
+      return { kind: "err", text: "Passport Prime did not respond in time. Try again." };
     case 6:
-      return { kind: "err", text: "Unlock Prime with your PIN, then try again." };
+      return { kind: "err", text: "Unlock Passport Prime with your PIN, then try again." };
     case 7:
       return { kind: "err", text: "Session expired. Try again." };
     case 10:
-      return { kind: "info", text: "Choose which saved login to fill." };
+      return { kind: "info", text: "Choose a saved login to fill." };
     default:
-      return { kind: "err", text: e?.message || String(e) };
+      break;
   }
+  if (/No Passport Prime paired/i.test(message)) {
+    return { kind: "err", text: "Pair Passport Prime, then try again." };
+  }
+  if (/USB interface is not available/i.test(message)) {
+    return {
+      kind: "err",
+      text: "Passport is paired, but Passwords USB is not available. Keep Passwords open, reconnect USB, then try again.",
+    };
+  }
+  if (/USB interface did not respond/i.test(message)) {
+    return {
+      kind: "err",
+      text: "Passport is paired, but Passwords did not answer. Use Pair / repair, then try again.",
+    };
+  }
+  if (/disconnected|reconnect|not connected|Couldn't open Passport Prime/i.test(message)) {
+    return { kind: "err", text: "Repair the Passport connection, then try again." };
+  }
+  if (/Open the Passwords app/i.test(message)) {
+    return { kind: "err", text: "Keep Passwords open, reconnect USB, then try again." };
+  }
+  return { kind: "err", text: message };
 }
 
 function setActionsEnabled(on) {
-  // Fill needs a password field on the page (no username — device knows it).
+  // Fill needs a password field on the page. The device knows the username.
   // Save needs a username and a password value typed on the page.
   // Generate just needs a username.
   const u = $("username").value.trim();
@@ -154,12 +198,53 @@ async function refreshStatus() {
       $("form").classList.remove("hidden");
       $("actions").classList.remove("hidden");
     } else if (resp && resp.error) {
-      setStatus("err", resp.error.message || "error");
+      const { text } = friendlyError(resp.error);
+      setStatus("err", text);
     } else {
       setStatus("err", "No response");
     }
   } catch (e) {
-    setStatus("err", String(e?.message || e));
+    const { text } = friendlyError(e);
+    setStatus("err", text);
+  }
+}
+
+function isLikelyPassport(device) {
+  return (
+    (device.vendorId === FOUNDATION_PASSPORT_FILTER.vendorId &&
+      device.productId === FOUNDATION_PASSPORT_FILTER.productId) ||
+    /passport/i.test(device.productName || "")
+  );
+}
+
+async function repairPairing() {
+  if (!navigator.usb) {
+    setResult("err", "WebUSB is not available in this browser.");
+    return;
+  }
+  setResult("info", "Choose Passport Prime...");
+  disableAllActions();
+  try {
+    await resetUsbTransport();
+    const granted = await navigator.usb.getDevices();
+    for (const device of granted.filter(isLikelyPassport)) {
+      try { await device.close(); } catch {}
+      try { await device.forget(); } catch {}
+    }
+    await navigator.usb.requestDevice({ filters: PAIRING_FILTERS });
+    await resetUsbTransport();
+    setResult("ok", "Passport Prime paired.");
+    await refreshStatus();
+    await refreshMatches();
+  } catch (e) {
+    if (e?.name === "NotFoundError") {
+      setResult("err", "No Passport Prime found. Open Passwords on the device and reconnect USB.");
+    } else {
+      setResult("err", e?.message || String(e));
+    }
+    setStatus("err", "Not connected");
+  } finally {
+    setActionsEnabled(true);
   }
 }
 
@@ -196,7 +281,7 @@ function disableAllActions() {
   $("generate").disabled = true;
 }
 
-async function runAction(action, pendingText, verbForResult) {
+async function runAction(action, pendingText, resultVerbs) {
   const username = $("username").value.trim();
   if (!username) {
     setResult("err", "Username required");
@@ -209,10 +294,10 @@ async function runAction(action, pendingText, verbForResult) {
     if (resp.error) throw resp.error;
     const { username: stored, action: storeAction } = resp.result;
     const verb = storeAction === "saved"
-      ? `${verbForResult} for`
+      ? resultVerbs.saved
       : storeAction === "updated"
-      ? `${verbForResult} (updated) for`
-      : `${verbForResult} (restored) for`;
+      ? resultVerbs.updated
+      : resultVerbs.restored;
     setResult("ok", `${verb} ${stored}`);
   } catch (e) {
     const { kind, text } = friendlyError(e);
@@ -224,10 +309,10 @@ async function runAction(action, pendingText, verbForResult) {
 
 async function runFillAction() {
   if (matchingCredentials.length > 1 && !selectedUsername) {
-    setResult("info", "Choose which saved login to fill.");
+    setResult("info", "Choose a saved login to fill.");
     return;
   }
-  setResult("info", "Approve on device…");
+  setResult("info", "Approve on Passport...");
   disableAllActions();
   try {
     const resp = await chrome.runtime.sendMessage({
@@ -236,7 +321,7 @@ async function runFillAction() {
     });
     if (resp.error) throw resp.error;
     const { username } = resp.result;
-    setResult("ok", `Filled for ${username}`);
+    setResult("ok", `Filled from Passport for ${username}`);
     setTimeout(() => window.close(), 700);
   } catch (e) {
     const { kind, text } = friendlyError(e);
@@ -247,11 +332,20 @@ async function runFillAction() {
 }
 
 $("fill").addEventListener("click", runFillAction);
+$("pair").addEventListener("click", repairPairing);
 $("save").addEventListener("click", () =>
-  runAction("save-active-tab", "Approve on device…", "Saved"),
+  runAction("save-active-tab", "Approve on Passport...", {
+    saved: "Saved to Passport for",
+    updated: "Updated on Passport for",
+    restored: "Restored on Passport for",
+  }),
 );
 $("generate").addEventListener("click", () =>
-  runAction("generate-active-tab", "Approve on device…", "Generated"),
+  runAction("generate-active-tab", "Approve on Passport...", {
+    saved: "Generated on Passport for",
+    updated: "Generated and updated on Passport for",
+    restored: "Generated and restored on Passport for",
+  }),
 );
 
 init();

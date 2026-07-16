@@ -1,0 +1,230 @@
+<!--
+SPDX-FileCopyrightText: 2026 Foundation Devices, Inc. <hello@foundation.xyz>
+SPDX-License-Identifier: GPL-3.0-or-later
+-->
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Y</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #000;
+        --ink: #f7f9f9;
+        --muted: #71767b;
+        --line: #2f3336;
+        --field: #000;
+        --button: #eff3f4;
+        --button-ink: #0f1419;
+        --blue: #1d9bf0;
+        --error: #f4212e;
+      }
+
+      * { box-sizing: border-box; }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        background: var(--bg);
+        color: var(--ink);
+        font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      }
+
+      .page {
+        min-height: 100vh;
+        display: grid;
+        grid-template-columns: minmax(320px, 1fr) minmax(360px, 520px);
+        align-items: center;
+        gap: 56px;
+        width: min(1180px, calc(100% - 64px));
+        margin: 0 auto;
+      }
+
+      .mark {
+        font-size: clamp(170px, 26vw, 360px);
+        line-height: 0.85;
+        font-weight: 800;
+        letter-spacing: -0.08em;
+        color: var(--ink);
+      }
+
+      .panel {
+        width: 100%;
+        max-width: 420px;
+      }
+
+      .small-mark {
+        width: 48px;
+        height: 48px;
+        border-radius: 50%;
+        border: 2px solid var(--ink);
+        display: grid;
+        place-items: center;
+        font-size: 29px;
+        font-weight: 800;
+        margin-bottom: 48px;
+      }
+
+      h1 {
+        font-size: clamp(46px, 5vw, 66px);
+        line-height: 1.05;
+        margin: 0 0 46px;
+        letter-spacing: -0.04em;
+      }
+
+      h2 {
+        font-size: 31px;
+        line-height: 1.15;
+        margin: 0 0 24px;
+        letter-spacing: -0.02em;
+      }
+
+      form {
+        display: flex;
+        flex-direction: column;
+        gap: 14px;
+      }
+
+      label {
+        display: flex;
+        flex-direction: column;
+        gap: 7px;
+        color: var(--muted);
+        font-size: 13px;
+        font-weight: 500;
+      }
+
+      input {
+        height: 54px;
+        width: 100%;
+        border: 1px solid var(--line);
+        border-radius: 4px;
+        background: var(--field);
+        color: var(--ink);
+        font: inherit;
+        font-size: 17px;
+        padding: 0 14px;
+        outline: none;
+      }
+
+      input:focus {
+        border-color: var(--blue);
+        box-shadow: 0 0 0 1px var(--blue);
+      }
+
+      button {
+        height: 46px;
+        border: 0;
+        border-radius: 999px;
+        background: var(--button);
+        color: var(--button-ink);
+        font: inherit;
+        font-size: 15px;
+        font-weight: 800;
+        margin-top: 12px;
+        cursor: pointer;
+      }
+
+      button:hover { filter: brightness(0.92); }
+
+      .divider {
+        display: grid;
+        grid-template-columns: 1fr auto 1fr;
+        align-items: center;
+        gap: 12px;
+        color: var(--muted);
+        margin: 16px 0;
+      }
+
+      .divider::before,
+      .divider::after {
+        content: "";
+        height: 1px;
+        background: var(--line);
+      }
+
+      .outline {
+        background: transparent;
+        color: var(--ink);
+        border: 1px solid var(--line);
+      }
+
+      .fine-print {
+        color: var(--muted);
+        font-size: 12px;
+        line-height: 1.45;
+        margin: 18px 0 0;
+      }
+
+      .status {
+        min-height: 22px;
+        color: var(--blue);
+        font-size: 14px;
+        font-weight: 700;
+      }
+
+      @media (max-width: 860px) {
+        .page {
+          grid-template-columns: 1fr;
+          align-items: start;
+          gap: 24px;
+          width: min(420px, calc(100% - 40px));
+          padding: 36px 0;
+        }
+        .mark { display: none; }
+        .small-mark { margin-bottom: 28px; }
+        h1 { margin-bottom: 30px; }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="page">
+      <div class="mark" aria-hidden="true">Y</div>
+
+      <section class="panel" aria-label="Y sign in">
+        <div class="small-mark" aria-hidden="true">Y</div>
+        <h1>See what is happening</h1>
+        <h2>Sign in to Y</h2>
+
+        <form id="login-form" autocomplete="on">
+          <label>
+            Phone, email, or username
+            <input
+              name="username"
+              type="text"
+              autocomplete="username"
+              placeholder="@demo"
+            />
+          </label>
+          <label>
+            Password
+            <input
+              name="password"
+              type="password"
+              autocomplete="current-password"
+              placeholder="Password"
+            />
+          </label>
+          <div id="status" class="status" role="status" aria-live="polite"></div>
+          <button type="submit">Sign in</button>
+          <div class="divider">or</div>
+          <button class="outline" type="button">Create account</button>
+        </form>
+
+        <p class="fine-print">Demo page for local Passport Passwords testing. This form never sends credentials to a remote service.</p>
+      </section>
+    </main>
+
+    <script>
+      const form = document.getElementById("login-form");
+      const status = document.getElementById("status");
+      form.addEventListener("submit", (event) => {
+        event.preventDefault();
+        const username = new FormData(form).get("username") || "@demo";
+        status.textContent = `Demo sign-in ready for ${username}.`;
+      });
+    </script>
+  </body>
+</html>

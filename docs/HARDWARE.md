@@ -12,7 +12,7 @@ facility the Nostr Signer 1.3 validated on the `dev-v1.3.0` branch.
 
 ## Prerequisites
 
-- A KeyOS `dev-v1.3.0` checkout with this app integrated (see
+- A compatible private KeyOS checkout with this app integrated (see
   [`../SDK-SETUP.md`](../SDK-SETUP.md)) and the Rust + GNU ARM toolchain.
   Supported build hosts: **Ubuntu**, the KeyOS **Nix flake**, or **macOS (Apple
   Silicon)** — on macOS export `AR_armv7a_unknown_xous_elf="arm-none-eabi-ar"`
@@ -27,12 +27,12 @@ facility the Nostr Signer 1.3 validated on the `dev-v1.3.0` branch.
 From the integrated KeyOS checkout:
 
 ```sh
-just build          # = cargo xtask build && cargo xtask build-firmware-image
+cargo xtask build-all
 ```
 
-`build` flashes the existing `boot.img` — it does not rebuild it. If you've just
-changed the app or its logic crates, run `just build` (above) to refresh
-`boot.img` before flashing, otherwise you'll flash stale firmware.
+`build-all` rebuilds the bootloader, recovery image, normal image, and final
+signed `boot.img`. Use it after changing the app or its logic crates so the
+flash cannot silently reuse stale image output.
 
 ## 2. Flash
 
@@ -72,7 +72,7 @@ before continuing.
 2. Open the extension's **Settings** page, leave the transport on **WebUSB**, and
    click **Pair Passport Prime**. Pick your Prime in the Chromium WebUSB picker
    (the gesture must come from the options page). The app registers a
-   vendor-class interface (`0xFF/0xFF/0xFF`, two 64-byte interrupt endpoints,
+   vendor-class interface (`0xFF/0x50/0x01`, two 64-byte interrupt endpoints,
    WebUSB + MS OS 2.0 descriptors) while it is open.
 
 > WebUSB grants are per-extension and drop when the extension reloads — re-pair
@@ -84,10 +84,10 @@ before continuing.
 1. Visit the matching login page (the demo gate is `https://github.com/login`).
 2. The extension offers to fill. Triggering it sends `release_credential`; the
    **approval screen appears on Prime** showing the requesting origin.
-3. Approve on Prime (hold-to-confirm). The credential returns over USB with the
-   password **sealed under the ECDH session key**, the extension decrypts it with
-   WebCrypto, and the form fills. Reject instead and the site sees a
-   `user_rejected` error and nothing is released.
+3. Approve with the primary button on Prime. The credential returns over USB
+   with the password **sealed under the ECDH session key**, the extension
+   decrypts it with WebCrypto, and the form fills. Reject instead and the site
+   sees a `user_rejected` error and nothing is released.
 
 ## Troubleshooting
 

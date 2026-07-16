@@ -1,0 +1,231 @@
+<!--
+SPDX-FileCopyrightText: 2026 Foundation Devices, Inc. <hello@foundation.xyz>
+SPDX-License-Identifier: GPL-3.0-or-later
+-->
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Foogle Account</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --blue: #1a73e8;
+        --red: #ea4335;
+        --yellow: #fbbc04;
+        --green: #34a853;
+        --ink: #202124;
+        --muted: #5f6368;
+        --line: #dadce0;
+        --focus: #1a73e8;
+        --surface: #fff;
+        --page: #f8fafd;
+      }
+
+      * { box-sizing: border-box; }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        font-family: Arial, Helvetica, sans-serif;
+        color: var(--ink);
+        background: var(--page);
+        display: grid;
+        place-items: center;
+        padding: 32px;
+      }
+
+      .shell {
+        width: min(920px, 100%);
+      }
+
+      .card {
+        min-height: 400px;
+        background: var(--surface);
+        border: 1px solid var(--line);
+        border-radius: 28px;
+        padding: 40px;
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 44px;
+        box-shadow: 0 18px 50px rgba(60, 64, 67, 0.08);
+      }
+
+      .brand {
+        font-size: 58px;
+        line-height: 1;
+        letter-spacing: -2px;
+        font-weight: 700;
+        margin-bottom: 52px;
+      }
+
+      .b { color: var(--blue); }
+      .r { color: var(--red); }
+      .y { color: var(--yellow); }
+      .g { color: var(--green); }
+
+      h1 {
+        font-size: 36px;
+        line-height: 1.15;
+        font-weight: 400;
+        margin: 0 0 12px;
+      }
+
+      .lead {
+        margin: 0;
+        font-size: 16px;
+        color: var(--ink);
+      }
+
+      form {
+        display: flex;
+        flex-direction: column;
+        gap: 18px;
+        padding-top: 84px;
+      }
+
+      label {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        font-size: 13px;
+        color: var(--muted);
+      }
+
+      input {
+        width: 100%;
+        height: 56px;
+        border: 1px solid var(--line);
+        border-radius: 4px;
+        padding: 0 14px;
+        font: inherit;
+        font-size: 17px;
+        color: var(--ink);
+        background: #fff;
+        outline: none;
+      }
+
+      input:focus {
+        border: 2px solid var(--focus);
+        padding: 0 13px;
+      }
+
+      .hint {
+        color: var(--muted);
+        font-size: 14px;
+        line-height: 1.45;
+        margin-top: 4px;
+      }
+
+      .actions {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 16px;
+        margin-top: 22px;
+      }
+
+      a {
+        color: var(--blue);
+        text-decoration: none;
+        font-weight: 600;
+      }
+
+      button {
+        border: 0;
+        border-radius: 999px;
+        background: var(--blue);
+        color: white;
+        font: inherit;
+        font-weight: 600;
+        padding: 11px 26px;
+        cursor: pointer;
+      }
+
+      button:hover { background: #1558b0; }
+
+      footer {
+        display: flex;
+        justify-content: space-between;
+        color: var(--muted);
+        font-size: 12px;
+        padding: 18px 10px 0;
+      }
+
+      .status {
+        min-height: 22px;
+        color: var(--green);
+        font-weight: 600;
+        font-size: 14px;
+      }
+
+      @media (max-width: 760px) {
+        body { padding: 16px; }
+        .card {
+          grid-template-columns: 1fr;
+          gap: 20px;
+          padding: 28px;
+        }
+        .brand { margin-bottom: 20px; }
+        form { padding-top: 0; }
+        footer { flex-direction: column; gap: 8px; }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="shell">
+      <section class="card" aria-label="Foogle sign in">
+        <div>
+          <div class="brand" aria-label="Foogle">
+            <span class="b">F</span><span class="r">o</span><span class="y">o</span><span class="b">g</span><span class="g">l</span><span class="r">e</span>
+          </div>
+          <h1>Sign in</h1>
+          <p class="lead">Use your Foogle Account</p>
+        </div>
+
+        <form id="login-form" autocomplete="on">
+          <label>
+            Email or phone
+            <input
+              name="email"
+              type="email"
+              autocomplete="username"
+              inputmode="email"
+              placeholder="alex@foogle.test"
+            />
+          </label>
+          <label>
+            Password
+            <input
+              name="password"
+              type="password"
+              autocomplete="current-password"
+              placeholder="Enter your password"
+            />
+          </label>
+          <p class="hint">Not your computer? Use a private window for this local demo.</p>
+          <div id="status" class="status" role="status" aria-live="polite"></div>
+          <div class="actions">
+            <a href="#" aria-label="Create a demo Foogle account">Create account</a>
+            <button type="submit">Next</button>
+          </div>
+        </form>
+      </section>
+      <footer>
+        <span>English (United Kingdom)</span>
+        <span>Demo only. Nothing is sent over the network.</span>
+      </footer>
+    </main>
+
+    <script>
+      const form = document.getElementById("login-form");
+      const status = document.getElementById("status");
+      form.addEventListener("submit", (event) => {
+        event.preventDefault();
+        const email = new FormData(form).get("email") || "demo user";
+        status.textContent = `Demo sign-in ready for ${email}.`;
+      });
+    </script>
+  </body>
+</html>

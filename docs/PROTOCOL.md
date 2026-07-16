@@ -7,7 +7,9 @@ app. Both sides implement this with types from
 ## Layers
 
 1. **Transport.** WebUSB vendor-class interface (class/subclass/protocol
-   `0xFF/0xFF/0xFF`), two 64-byte interrupt endpoints. Same shape as
+   `0xFF/0x50/0x01`), two 64-byte interrupt endpoints. The app-specific
+   subclass/protocol prevents other Prime extensions claiming this interface.
+   It uses the same transport shape as
    nostr-signer 1.3.
 2. **Framing.** Newline-delimited JSON. Each request/response is one
    `\n`-terminated UTF-8 JSON object. Aligns with the Nostr Signer's

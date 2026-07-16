@@ -52,7 +52,8 @@ Both tracks use the same extension.
    [`SDK-SETUP.md`](SDK-SETUP.md)), then flash over USB (SAM-BA):
 
    ```bash
-   just build && cargo xtask flash
+   cargo xtask build-all
+   cargo xtask flash
    ```
 
    If the device is already in SAM-BA mode, flash **without** `--switch`. On
@@ -71,7 +72,7 @@ Both tracks use the same extension.
    **Pair Passport Prime**, then select your Prime in the Chromium WebUSB picker
    (this requires a user gesture, which is why it is initiated from the options
    page). The device registers a vendor-class interface
-   (class/subclass/protocol = `0xFF/0xFF/0xFF`) with two 64-byte interrupt
+   (class/subclass/protocol = `0xFF/0x50/0x01`) with two 64-byte interrupt
    endpoints. WebUSB pairing is per-extension and drops on reload — re-pair after
    reloading the extension.
 

@@ -79,35 +79,41 @@ component CompatText inherits Text {
 }
 
 export component HeadingLg inherits CompatText {
-    font-size: 28px;
-    font-weight: 700;
+    font-size: 32px;
+    font-weight: 600;
 }
 
 export component HeadingMd inherits CompatText {
-    font-size: 24px;
-    font-weight: 700;
+    font-size: 28px;
+    font-weight: 600;
 }
 
 export component HeadingSm inherits CompatText {
-    font-size: 18px;
-    font-weight: 700;
+    font-size: 24px;
+    font-weight: 600;
 }
 
 export component TextLg inherits CompatText {
-    font-size: 20px;
-    font-weight: root.bold ? 700 : 400;
+    font-size: 24px;
+    font-weight: root.bold ? 600 : 400;
     in property <bool> bold: false;
 }
 
 export component TextMd inherits CompatText {
-    font-size: 18px;
-    font-weight: root.bold ? 700 : 400;
+    font-size: 22px;
+    font-weight: root.bold ? 600 : 500;
     in property <bool> bold: false;
 }
 
 export component TextSm inherits CompatText {
-    font-size: 14px;
-    font-weight: root.bold ? 700 : 400;
+    font-size: 20px;
+    font-weight: root.bold ? 700 : 500;
+    in property <bool> bold: false;
+}
+
+export component TextXs inherits CompatText {
+    font-size: 18px;
+    font-weight: root.bold ? 700 : 500;
     in property <bool> bold: false;
 }
 
@@ -146,10 +152,13 @@ export component Button inherits Rectangle {
         padding-left: Size.sz6;
         padding-right: Size.sz6;
 
-        if icon != "": IconImage {
-            name: icon;
-            icon-size: Size.sz6;
-            icon-color: root.label-color;
+        if icon != "": VerticalLayout {
+            alignment: center;
+            IconImage {
+                name: icon;
+                icon-size: Size.sz6;
+                icon-color: root.label-color;
+            }
         }
 
         if label != "": TextLg {
@@ -240,29 +249,35 @@ export component AppHeader inherits Rectangle {
     in property <brush> title-color: Palette.content-primary;
     in property <LayoutAlignment> alignment: space-between;
     in property <length> side-padding: Size.sz4;
+    in property <length> extra-title-padding: Size.zero;
 
     height: Size.sz16;
 
     HeadingMd {
-        width: parent.width - 2 * (root.side-padding + Size.sz12);
-        x: root.side-padding + Size.sz12;
-        height: parent.height;
         text: root.title;
         color: root.title-color;
         horizontal-alignment: center;
+        horizontal-stretch: 1;
         vertical-alignment: center;
         wrap: no-wrap;
         overflow: elide;
+        x: root.side-padding + Size.sz10 + Size.sz2 + root.extra-title-padding;
+        width: parent.width - 2 * (root.side-padding + Size.sz10 + Size.sz2 + root.extra-title-padding);
+        height: parent.height;
     }
 
-    HorizontalLayout {
-        width: 100%;
+    VerticalLayout {
+        alignment: center;
         height: parent.height;
-        padding-left: root.side-padding;
-        padding-right: root.side-padding;
-        alignment: root.alignment;
 
-        @children
+        HorizontalLayout {
+            width: 100%;
+            alignment: root.alignment;
+            padding-left: root.side-padding;
+            padding-right: root.side-padding;
+
+            @children
+        }
     }
 }
 
@@ -288,6 +303,7 @@ export component TitledInput inherits VerticalLayout {
 
     HorizontalLayout {
         padding-left: Size.sz4;
+        alignment: start;
         TextSm {
             text: root.title;
             color: Palette.content-tertiary;
@@ -319,7 +335,8 @@ export component TitledInput inherits VerticalLayout {
             text <=> root.text;
             color: root.has-error ? Palette.content-negative : root.has-notice ? Palette.content-notice : Palette.content-primary;
             font-family: "Montserrat";
-            font-size: 18px;
+            font-size: 22px;
+            font-weight: 500;
             input-type: root.input-type == InputType.password && !root.show-password ? InputType.password : InputType.text;
             caps-mode: root.caps-mode;
             enabled: root.enabled;
@@ -331,6 +348,7 @@ export component TitledInput inherits VerticalLayout {
 
             accepted => {
                 root.accepted(self.text);
+                self.clear-focus();
             }
         }
     }
@@ -351,7 +369,7 @@ export component LineCard inherits Rectangle {
     in property <CardColor> card-color: CardColor.purple;
 
     background: Utils.get-card-bg-color(card-color);
-    border-radius: Size.sz5;
+    border-radius: Size.sz6;
     clip: true;
 
     Rectangle {
@@ -391,17 +409,26 @@ export component WrappedIcon inherits Rectangle {
     in property <string> outer-icon;
     in property <string> inner-icon;
 
-    width: Size.sz16;
-    height: Size.sz16;
-    border-radius: root.width / 2;
-    background: Palette.background-primary-alternative;
+    width: 184px;
+    height: 184px;
+    background: Palette.transparent;
 
-    IconImage {
-        x: (parent.width - self.width) / 2;
-        y: (parent.height - self.height) / 2;
-        name: root.inner-icon;
-        icon-size: Size.sz8;
-        icon-color: Palette.content-brand;
+    Image {
+        source: Images.common("images/" + root.outer-icon);
+        width: parent.width;
+        height: parent.height;
+    }
+
+    VerticalLayout {
+        alignment: center;
+        HorizontalLayout {
+            alignment: center;
+            IconImage {
+                name: root.inner-icon;
+                icon-size: 96px;
+                icon-color: Palette.content-brand;
+            }
+        }
     }
 }
 
@@ -414,14 +441,19 @@ export component Editable inherits Rectangle {
 
     HorizontalLayout {
         height: root.height;
-        spacing: Size.sz4;
+        alignment: stretch;
+        spacing: Size.sz2;
 
-        if root.edit-mode: IconButton {
-            icon: "edit";
-            size: Size.sz8;
-            importance: Importance.secondary;
-            clicked => {
-                root.edit();
+        if root.edit-mode: VerticalLayout {
+            alignment: center;
+            IconButton {
+                icon: "edit";
+                size: Size.sz10;
+                icon-size: Size.sz10;
+                importance: Importance.normal;
+                clicked => {
+                    root.edit();
+                }
             }
         }
 
@@ -443,8 +475,10 @@ export component OverlayMenu inherits Rectangle {
         z: 100;
         width: UISize.popup-menu-width;
         height: content.preferred-height;
-        background: Palette.background-primary;
-        border-radius: Size.sz4;
+        background: Palette.background-primary-alternative;
+        border-color: Palette.border-primary;
+        border-width: Size.sz0_25;
+        border-radius: Size.sz6;
         clip: true;
 
         content := VerticalLayout {
@@ -466,26 +500,41 @@ export component PopupMenuItem inherits Rectangle {
     in property <bool> last: false;
     callback clicked();
 
-    height: Size.sz14;
-    background: touch.pressed ? Palette.background-pressed : Palette.background-primary;
+    height: Size.sz16;
+    background: touch.pressed ? Palette.background-pressed : Palette.background-primary-alternative;
 
     HorizontalLayout {
-        padding-left: Size.sz4;
-        padding-right: Size.sz4;
-        spacing: Size.sz3;
-        alignment: start;
+        height: parent.height;
+        padding: Size.sz4;
+        spacing: Size.sz4;
 
-        IconImage {
-            name: root.icon;
-            icon-size: Size.sz6;
-            icon-color: Palette.content-secondary;
+        VerticalLayout {
+            alignment: center;
+            IconImage {
+                name: root.icon;
+                icon-size: Size.sz6;
+                icon-color: Palette.content-primary;
+            }
         }
 
         TextMd {
             text: root.label;
             color: Palette.content-primary;
             vertical-alignment: center;
+            horizontal-stretch: 1;
         }
+    }
+
+    border-top-left-radius: first ? Size.sz6 : 0px;
+    border-top-right-radius: first ? Size.sz6 : 0px;
+    border-bottom-left-radius: last ? Size.sz6 : 0px;
+    border-bottom-right-radius: last ? Size.sz6 : 0px;
+
+    if !last: Rectangle {
+        y: parent.height - self.height;
+        width: parent.width;
+        height: Size.sz0_25;
+        background: Palette.border-secondary;
     }
 
     touch := TouchArea {
@@ -512,12 +561,15 @@ export component Modal inherits Rectangle {
         y: (root.height - self.height) / 2;
         height: layout.preferred-height;
         z: 100;
-        background: Palette.background-primary;
+        background: Palette.background-primary-alternative;
+        border-color: Palette.border-primary;
+        border-width: Size.sz0_25;
         border-radius: Size.sz6;
+        clip: true;
 
         layout := VerticalLayout {
             padding: Size.sz6;
-            spacing: Size.sz6;
+            spacing: Size.sz8;
             alignment: start;
 
             HorizontalLayout {
@@ -646,16 +698,39 @@ export component ShieldPage inherits Rectangle {
     x: 0;
     y: UISize.control-center-status-bar-height;
     width: UISize.screen-width;
-    height: UISize.app-window-height;
+    height: UISize.app-window-height - Size.sz5;
     background: Palette.background-primary;
 
-    VerticalLayout {
-        alignment: space-between;
-        padding-left: Size.sz6;
-        padding-right: Size.sz6;
-        padding-top: Size.sz8;
-        padding-bottom: Size.sz4;
+    in property <length> top-inner-padding: Size.sz6;
+    in property <bool> mask: true;
 
-        @children
+    panel := Rectangle {
+        x: 5px;
+        y: Size.sz1;
+        width: UISize.screen-width - 10px;
+        height: parent.height - Size.sz1;
+        clip: false;
+
+        Image {
+            x: -Size.sz4;
+            y: -Size.sz2;
+            width: parent.width + Size.sz8;
+            height: parent.height + Size.sz8;
+            source: Images.nine-slice(CurrentTheme.is-dark ? "images/shield-bg-dark" : "images/shield-bg");
+            image-fit: contain;
+        }
+
+        VerticalLayout {
+            y: Size.sz6;
+            width: parent.width;
+            height: parent.height - Size.sz6 - Size.sz8;
+            alignment: space-between;
+            padding-left: Size.sz6;
+            padding-right: Size.sz6;
+            padding-top: root.top-inner-padding;
+            padding-bottom: 10px;
+
+            @children
+        }
     }
 }

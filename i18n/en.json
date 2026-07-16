@@ -32,6 +32,6 @@
   "approval.title": "Release password?",
   "approval.website": "Website",
   "approval.username": "Username",
-  "approval.slideToConfirm": "Slide to confirm",
+  "approval.slideToConfirm": "Approve",
   "approval.reject": "Reject"
 }

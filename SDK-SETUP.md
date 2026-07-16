@@ -5,7 +5,25 @@ SPDX-License-Identifier: GPL-3.0-or-later
 
 # Vaults Bridge — SDK setup & integration
 
-## Is this an "SDK app"? Yes.
+## Source of truth
+
+This repository is the canonical Passwords source. A copy under
+`KeyOS-dev/apps/gui-app-passwords` is generated build input, not a second place
+to develop the app.
+
+To stage the current source into a private KeyOS checkout and apply the required
+KeyOS edits:
+
+```bash
+./scripts/stage-keyos-app.sh /path/to/KeyOS-dev
+```
+
+The script copies only app build inputs, rewrites the standalone Cargo paths for
+the monorepo layout, applies `docs/keyos-integration.patch`, and links a private
+signing config when
+`~/.foundation/signing/passwords/cosign2.toml` exists.
+
+## Is this an SDK app? Yes.
 
 The official Foundation developer docs (<https://docs.foundation.xyz/developers>)
 describe an `app-config.toml` + `foundation sideload` flow. The **shipped
@@ -17,11 +35,10 @@ the same `slint-keyos-platform` path-deps, the same `src/main.rs` + `ui/pages/*`
 and the `@ui` widget library. So **`manifest.toml` is the real SDK manifest**,
 and this app already conforms to the SDK project shape.
 
-**CLI maturity (important):** at the time of writing only `foundation new` and
-`foundation develop` are implemented; `sim`, `sideload`, and `cert` are not. So
-the CLI can scaffold a project and open the Nix dev shell, but it cannot yet
-build or install to hardware. Use KeyOS's own `cargo xtask` flow for that (it is
-the same toolchain the CLI will eventually wrap).
+**Current SDK blocker:** the intended `foundation sim` and build path is blocked
+by the SDK's bundled `server-macro`, which uses the removed unstable
+`track_path` feature. Until that SDK fix lands, use the private KeyOS
+`cargo xtask` flow below.
 
 ## Layout vs. the SDK template
 
@@ -57,7 +74,7 @@ The app appears in the dev **Secret Menu** / hidden-apps launcher list as
 ### Device image build (full flashable firmware)
 
 ```bash
-just build          # = cargo xtask build && cargo xtask build-firmware-image
+cargo xtask build-all
 cargo xtask flash   # flash the signed boot.img over USB (SAM-BA)
 ```
 
@@ -75,7 +92,7 @@ installed — with one gotcha:
 > ```bash
 > export AR_armv7a_unknown_xous_elf="arm-none-eabi-ar"
 > export RANLIB_armv7a_unknown_xous_elf="arm-none-eabi-ranlib"
-> just build
+> cargo xtask build-all
 > ```
 >
 > (Durable fix: add the `AR_armv7a_unknown_xous_elf` line next to the `CC_...`
@@ -84,49 +101,45 @@ installed — with one gotcha:
 ## Integrating into a KeyOS checkout
 
 This repo is the app plus its vendored logic and companion extension. To build
-it you drop the app into a KeyOS workspace. From a clean KeyOS checkout on
-`dev-v1.3.0`:
+it you drop the app into a compatible private KeyOS workspace. The integration
+patch is validated against the revision listed in
+[`docs/KEYOS-PATCHES.md`](docs/KEYOS-PATCHES.md).
 
-1. **Copy the app in** (the whole repo minus the host-side extras):
+The recommended path is the staging script:
 
-   ```bash
-   mkdir -p <keyos>/apps/gui-app-passwords
-   # copy: Cargo.toml manifest.toml build.rs src/ ui/ resources/ i18n/ logic/
-   ```
+```bash
+./scripts/stage-keyos-app.sh /path/to/KeyOS-dev
+```
 
-   The app path-depends into its own bundled `logic/` sub-workspace
-   (`logic/vaults-bridge-core`, `-protocol`, `-keystore`, `-import`), so `logic/`
-   rides inside the app directory — nothing else to place.
+For a manual integration:
 
-2. **Apply the integration edits** ([`docs/keyos-integration.patch`](docs/keyos-integration.patch),
+1. Copy `Cargo.toml`, `app-config.toml`, `manifest.toml`, `build.rs`, `src/`,
+   `ui/`, `resources/`, `i18n/`, and `logic/` into
+   `<keyos>/apps/gui-app-passwords`.
+2. Remove the standalone `[workspace]` and `[patch.crates-io]` blocks from the
+   copied `Cargo.toml`, then rewrite `../KeyOS-dev2/` paths to `../../`.
+3. Apply the integration edits ([`docs/keyos-integration.patch`](docs/keyos-integration.patch),
    detailed in [`docs/KEYOS-PATCHES.md`](docs/KEYOS-PATCHES.md)):
    - `Cargo.toml` — add `"apps/gui-app-passwords"` to `[workspace].members` and
-     `exclude = ["logic"]` so the nested logic workspace is not pulled into the
-     root workspace.
+     add `"apps/gui-app-passwords/logic"` to the workspace exclusions.
    - `os/gui-app-launcher/src/main.rs` — add a `HiddenApp { label: "Passwords",
      app_id: "0x50617373776f72647300000000000000" }` entry.
    - `xtask/src/main.rs` — add `"gui-app-passwords"` to `DEV_APPS` and
      `DEFAULT_SERVICES_HOSTED` (so it builds for device and the simulator).
+   - `os/usb/src/device/implementation.rs` — replace stale app-owned USB
+     interfaces and endpoints when the foreground app is reopened.
 
    ```bash
-   git apply docs/keyos-integration.patch    # or --3way if trunk has moved
+   git apply --unidiff-zero /path/to/passport-passwords/docs/keyos-integration.patch
    ```
-
-3. **USB stack.** The on-device WebUSB transport (vendor-class `0xFF/0xFF/0xFF`,
-   two 64-byte interrupt endpoints, WebUSB + MS OS 2.0 descriptors) relies on USB
-   (PIO) fixes that are **already present in `dev-v1.3.0`** — the same fixes the
-   Nostr Signer validated (SUP-1243). No separate patch is needed. The simulator
-   (WebSocket transport) doesn't touch USB at all.
 
 After that, `cargo xtask check gui-app-passwords` should pass for both targets.
 
 ## Adopting the official `foundation` CLI later
 
-Once `foundation sim`/`sideload`/`cert` ship, the migration is mechanical:
-`foundation new passwords --template multi-page-app`, then move `src/`, `ui/`,
-`resources/`, `i18n/`, `logic/`, and `manifest.toml` into the scaffold — the
-layout already matches. `foundation sideload` would then push the signed app
-bundle over USB without a full firmware rebuild.
+Once the SDK `track_path` blocker is fixed, repoint the remaining
+`../KeyOS-dev2` path dependencies at the SDK's bundled `lib/keyos` and validate
+`foundation sim`, `foundation build`, and `foundation sideload`.
 
 ## Open items
 

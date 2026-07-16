@@ -9,7 +9,7 @@
 //!     host-side build of the app during development without a Prime.
 //!
 //!   - **WebUSB vendor-class** on `cfg(keyos)` for hardware. The app registers a vendor-class interface
-//!     (class/subclass/protocol 0xFF/0xFF/0xFF) with two 64-byte interrupt endpoints plus the WebUSB and MS
+//!     (class/subclass/protocol 0xFF/0x50/0x01) with two 64-byte interrupt endpoints plus the WebUSB and MS
 //!     OS 2.0 Platform Capability descriptors. The browser extension reaches it via `navigator.usb`.
 //!
 //! Wire format on both transports: 64-byte interrupt-endpoint framing

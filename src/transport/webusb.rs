@@ -34,9 +34,14 @@ usb::use_device_api!();
 // --- USB descriptors --------------------------------------------------------
 
 const WEBUSB_IFCE_CLASS: u8 = 0xFF;
-const WEBUSB_IFCE_SUBCLASS: u8 = 0xFF;
-const WEBUSB_IFCE_PROTOCOL: u8 = 0xFF;
-const WEBUSB_INTERFACE_NUMBER: u8 = 0;
+// App-specific identity. Other Prime apps also use vendor-class WebUSB;
+// a distinct subclass/protocol prevents their extensions claiming this
+// interface and sending a different protocol to Passwords.
+const WEBUSB_IFCE_SUBCLASS: u8 = 0x50;
+const WEBUSB_IFCE_PROTOCOL: u8 = 0x01;
+// KeyOS reserves 0-5 for legacy HID, mass storage, CTAP, USB debug,
+// and USB serial. Passwords uses the next app-local interface slot.
+const WEBUSB_INTERFACE_NUMBER: u8 = 6;
 
 /// Hard cap on a single newline-delimited request, in bytes. Matches
 /// `vaults_bridge_protocol::frame::LineSplitter::MAX_LINE_BYTES`. A host
@@ -158,15 +163,21 @@ fn serve_blocking(engine: Arc<Engine<Keystore>>) -> anyhow::Result<()> {
     }
 
     crate::transport::set_status("WebUSB: registering interface");
-    let (_webusb_interface, [mut ep_in, ep_out]) = match usb.register_interface(
-        UsbInterfaceConfig::new(
-            WEBUSB_INTERFACE_NUMBER,
-            WEBUSB_IFCE_CLASS,
-            WEBUSB_IFCE_SUBCLASS,
-            WEBUSB_IFCE_PROTOCOL,
-            &WEBUSB_ENDPOINTS,
-        )
-        .with_setup_responder(Some(SetupResponder)),
+    if let Err(e) = usb.register_setup_responder(SetupResponder) {
+        let msg = format!("WebUSB: register setup responder failed: {e:?}");
+        log::warn!("{msg}");
+        crate::transport::set_status(msg);
+        std::thread::park();
+        return Ok(());
+    }
+    let [mut ep_in, ep_out] = match usb.register_interface(
+        WEBUSB_INTERFACE_NUMBER,
+        WEBUSB_IFCE_CLASS,
+        WEBUSB_IFCE_SUBCLASS,
+        WEBUSB_IFCE_PROTOCOL,
+        &WEBUSB_ENDPOINTS,
+        &[],
+        0,
     ) {
         Ok(interface) => interface,
         Err(e) => {
@@ -343,4 +354,6 @@ async fn dispatch(engine: &Engine<Keystore>, payload: &[u8]) -> Response {
     engine.handle(req, now_ms()).await
 }
 
-fn now_ms() -> u64 { SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0) }
+fn now_ms() -> u64 {
+    SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0)
+}

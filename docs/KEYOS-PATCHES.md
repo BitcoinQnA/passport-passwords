@@ -5,30 +5,30 @@ SPDX-License-Identifier: GPL-3.0-or-later
 
 # KeyOS integration patch
 
-Dropping `gui-app-passwords` into a KeyOS checkout needs three small edits to
+Dropping `gui-app-passwords` into a KeyOS checkout needs four small edits to
 tracked KeyOS files. They are captured as a single diff in
 [`keyos-integration.patch`](keyos-integration.patch) and described below.
 
-Unlike the Nostr Signer (which carried USB PIO stack fixes), **Vaults Bridge
-needs no USB patch**: the on-device WebUSB transport sits on the runtime
-vendor-class `register_interface` facility plus the PIO OUT / IRQ-mask fixes that
-are already present in the `dev-v1.3.0` trunk (SUP-1243, validated by the Nostr
-Signer 1.3 on the same branch). The simulator's WebSocket transport touches no
-USB at all.
+Vaults Bridge uses the runtime vendor-class `register_interface` facility plus
+the PIO OUT / IRQ-mask fixes already present in the `dev-v1.3.0` trunk
+(SUP-1243). It also needs the app-interface lifecycle fix described below.
+Without it, reopening Passwords leaves interface 6 registered with endpoints
+owned by the exited process, so the browser can pair with Passport but cannot
+reach the app. The simulator's WebSocket transport touches no USB at all.
 
 ## Base
 
 - Repo: `Foundation-Devices/KeyOS-dev` (private)
-- Branch base: `dev-v1.3.0`
+- Patch validated at KeyOS commit
+  `87a5b7236bc8b739d892c6be0de7718803352fcf`.
 
-## The three edits
+## The four edits
 
 ### 1. `Cargo.toml` — workspace wiring
 
 - Add `"apps/gui-app-passwords"` to `[workspace].members`.
-- Add `exclude = ["logic"]` so the app's nested `logic/` sub-workspace (the
-  vendored `vaults-bridge-*` crates) is not pulled into the root workspace. The
-  app path-depends into it directly.
+- Add `"apps/gui-app-passwords/logic"` to the existing workspace exclusions so
+  the nested vendored logic workspace is not pulled into the root workspace.
 
 ### 2. `os/gui-app-launcher/src/main.rs` — launcher tile
 
@@ -50,23 +50,39 @@ right-padded with zeroes — matching `manifest.toml`'s `appId`.
 Add `"gui-app-passwords"` to both `DEV_APPS` (so it builds for the device image)
 and `DEFAULT_SERVICES_HOSTED` (so it builds into the hosted simulator).
 
+### 4. `os/usb/src/device/implementation.rs`: app interface lifecycle
+
+- Treat interface numbers 0 through 5 as fixed KeyOS interfaces.
+- Replace an existing app-owned interface at 6 or above, completing stale I/O
+  and releasing its endpoints before allocating new ones.
+- Make repeated platform-capability registration idempotent.
+- Set `bNumInterfaces` to the highest interface number plus one, as required by
+  the USB configuration descriptor.
+
 ## How to apply
 
-From a clean `dev-v1.3.0` checkout with the app directory already copied to
-`apps/gui-app-passwords/`:
+The preferred command stages the canonical source and applies the patch:
 
 ```sh
-git apply docs/keyos-integration.patch       # or --3way if trunk has moved
+./scripts/stage-keyos-app.sh /path/to/KeyOS-dev
+```
+
+For a manual integration, from a clean checkout with the app directory already
+copied to `apps/gui-app-passwords/`:
+
+```sh
+git apply --unidiff-zero /path/to/passport-passwords/docs/keyos-integration.patch
 cargo xtask check gui-app-passwords          # should pass for device + sim
 ```
 
-If `git apply` rejects a hunk, the cause is upstream movement on `dev-v1.3.0`
-since this snapshot — re-apply with `git apply --3way` and resolve, or make the
-three edits by hand from the descriptions above.
+If `git apply` rejects a hunk, the cause is upstream movement since this
+snapshot. Re-apply manually against the new context, or make the
+four edits by hand from the descriptions above.
 
 ## Coexistence
 
-KeyOS is a one-foreground-app system: switching apps deregisters the previous
-app's USB interface, so Vaults Bridge's vendor-class interface never competes
-with the Nostr Signer's at runtime even though both use the `0xFF/0xFF/0xFF`
-triple. FIDO HID is independent and runs alongside either.
+KeyOS is a one-foreground-app system. Foreground apps share the app-owned USB
+interface slot and replace the previous app's stale registration when launched.
+Vaults Bridge uses `0xFF/0x50/0x01`, so extensions for other vendor-class apps
+do not claim its interface or send it an incompatible protocol. FIDO HID is
+independent and runs alongside it.

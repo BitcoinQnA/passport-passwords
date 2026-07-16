@@ -1,57 +1,90 @@
 diff --git a/Cargo.toml b/Cargo.toml
-index da60d9691..7f5db97f4 100644
 --- a/Cargo.toml
 +++ b/Cargo.toml
-@@ -6,6 +6,9 @@ cargo-features = ["trim-paths"]
- [workspace]
- resolver = "2"
- 
-+# Vendored POC logic (its own sub-workspace; app path-depends into it).
-+exclude = ["logic"]
-+
- members = [
-     "api/app-manager",
-     "api/backup",
-@@ -37,6 +40,7 @@ members = [
-     "apps/gui-app-regulatory",
-     "apps/gui-app-security-keys",
+@@ -46,2 +46,3 @@ members = [
      "apps/gui-app-seed-vault",
 +    "apps/gui-app-passwords",
      "apps/gui-app-switcher",
-     "apps/gui-app-system-actions",
-     "apps/simulator",
+@@ -188 +189 @@ members = [
+-exclude = ["apps/simulator", "apps/simulator-cli"]
++exclude = ["apps/simulator", "apps/simulator-cli", "apps/gui-app-passwords/logic"]
 diff --git a/os/gui-app-launcher/src/main.rs b/os/gui-app-launcher/src/main.rs
-index b94d3f0ab..bc044b2b5 100644
 --- a/os/gui-app-launcher/src/main.rs
 +++ b/os/gui-app-launcher/src/main.rs
-@@ -128,6 +128,10 @@ fn app_main(cx: AppContext, ui: AppWindow) {
-             HiddenApp { label: "Reg. Testing".into(), app_id: "0xc677731d8ee7380a38faa7cd97cbd3a5".into() },
-             HiddenApp { label: "Playground".into(), app_id: "0x7c9f81f9bcee31425062fb0d8fbf3001".into() },
-             HiddenApp { label: "Update".into(), app_id: "0x6b713041faef901f23743263a45dcb83".into() },
+@@ -165,2 +165,6 @@ fn app_main(cx: AppContext, ui: AppWindow) {
+         let hidden_apps = vec![
 +            HiddenApp {
 +                label: "Passwords".into(),
 +                app_id: "0x50617373776f72647300000000000000".into(),
 +            },
-         ];
- 
-         ui.global::<State>().set_hidden_apps(slint::ModelRc::new(VecModel::from(hidden_apps)));
+             HiddenApp { label: "System Actions".into(), app_id: "0x6775692d6170702d73797374656d2d61".into() },
+diff --git a/os/usb/src/device/implementation.rs b/os/usb/src/device/implementation.rs
+--- a/os/usb/src/device/implementation.rs
++++ b/os/usb/src/device/implementation.rs
+@@ -57,2 +57,3 @@ struct RegisteredInterface {
+     descriptors: Vec<u8>,
++    endpoint_numbers: Vec<u8>,
+ }
+@@ -316,2 +317,3 @@ impl UsbDeviceServer {
+     fn recalculate_config_descriptor(&mut self) {
++        let interface_count = self.interfaces.keys().next_back().map_or(0, |number| number.saturating_add(1));
+         self.config_descriptor = vec![
+@@ -322,3 +324,3 @@ impl UsbDeviceServer {
+             0x00,
+-            self.interfaces.len() as u8, // bNumInterfaces
++            interface_count, // bNumInterfaces: highest bInterfaceNumber + 1
+             0x01,                        // bConfigurationValue (used to call SetConfiguration)
+@@ -341,3 +343,23 @@ impl UsbDeviceServer {
+         if self.interfaces.contains_key(&msg.interface_number) {
+-            return Err(UsbError::AlreadyRegistered);
++            // Interfaces 0-5 are fixed KeyOS services. Interfaces 6 and above
++            // belong to foreground apps, whose processes can exit without an
++            // opportunity to unregister. Replace those stale registrations so
++            // reopening an app does not leave the host bound to dead endpoints.
++            if msg.interface_number < usb::device::interface_numbers::LOG_USB_SERIAL_DATA + 1 {
++                return Err(UsbError::AlreadyRegistered);
++            }
++
++            log::info!("Replacing app USB interface {}", msg.interface_number);
++            let old = self.interfaces.remove(&msg.interface_number).unwrap();
++            for endpoint_number in old.endpoint_numbers {
++                if let Some(mut endpoint) = self.endpoints.remove(&endpoint_number) {
++                    if let Some(mut read) = endpoint.ongoing_read.take() {
++                        read.set_response(Err(UsbError::HostDisconnected));
++                    }
++                    if let Some(mut write) = endpoint.ongoing_write.take() {
++                        write.msg.set_response(Err(UsbError::HostDisconnected));
++                    }
++                }
++                self.hw.reset_endpoint(endpoint_number as usize);
++            }
+         }
+@@ -402,3 +424,9 @@ impl UsbDeviceServer {
+         }
+-        self.interfaces.insert(msg.interface_number, RegisteredInterface { descriptors });
++        self.interfaces.insert(
++            msg.interface_number,
++            RegisteredInterface {
++                descriptors,
++                endpoint_numbers: result.clone(),
++            },
++        );
+         Ok(result)
+@@ -432,3 +460,5 @@ impl UsbDeviceServer {
+         descriptors.extend_from_slice(&msg.capability_functional_descriptors);
+-        self.capabilities.push(RegisteredCapability { descriptors });
++        if !self.capabilities.iter().any(|capability| capability.descriptors == descriptors) {
++            self.capabilities.push(RegisteredCapability { descriptors });
++        }
+     }
 diff --git a/xtask/src/main.rs b/xtask/src/main.rs
-index ac2a72b4c..56b527c52 100644
 --- a/xtask/src/main.rs
 +++ b/xtask/src/main.rs
-@@ -119,6 +119,7 @@ const DEV_APPS: &[&str] = &[
-     // "gui-app-regulatory",
-     "gui-app-system-actions",
+@@ -126,2 +126,3 @@ const DEV_APPS: &[&str] = &[
      "gui-app-update-test",
 +    "gui-app-passwords",
  ];
- 
- const DEFAULT_SERVICES_HOSTED: &[&str] = &[
-@@ -164,6 +165,7 @@ const DEFAULT_SERVICES_HOSTED: &[&str] = &[
-     "gui-app-onboarding",
-     // "gui-app-recovery",
+@@ -177,2 +178,3 @@ const DEFAULT_SERVICES_HOSTED: &[&str] = &[
      "gui-app-file-picker-test",
 +    "gui-app-passwords",
      "gui-app-switcher",
-     // "recovery-worker",
-     "simulator",

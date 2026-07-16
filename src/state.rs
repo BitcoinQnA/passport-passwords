@@ -22,7 +22,9 @@ impl AppState {
         Self { keystore, ui, search: String::new() }
     }
 
-    pub fn set_search(&mut self, q: String) { self.search = q.to_lowercase(); }
+    pub fn set_search(&mut self, q: String) {
+        self.search = q.to_lowercase();
+    }
 
     pub fn refresh_credentials(&self) {
         let Some(ui) = self.ui.upgrade() else { return };

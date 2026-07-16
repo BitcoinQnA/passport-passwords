@@ -86,6 +86,12 @@ function resetSession() {
   requestNonce = 0;
 }
 
+function shouldResetSession(e) {
+  if (e?.code === 7) return true;
+  const message = String(e?.message || e || "");
+  return /disconnected|reconnect|not connected|closed|Couldn't open Passport Prime|USB interface/i.test(message);
+}
+
 // --- WebSocket transport (simulator) -------------------------------------
 
 function ensureWs() {
@@ -400,6 +406,25 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   const fromContentScript = !!sender?.tab;
   const fromExtensionPage = !sender?.tab; // popup, options, offscreen
 
+  if (msg.action === "reset-usb-transport") {
+    if (!fromExtensionPage) return false;
+    (async () => {
+      resetSession();
+      try {
+        if (await chrome.offscreen.hasDocument()) {
+          await chrome.runtime.sendMessage({
+            target: "offscreen-usb",
+            type: "disconnect",
+          });
+        }
+      } catch {
+        // Best effort: the next RPC will recreate the offscreen document.
+      }
+      sendResponse({ result: { ok: true } });
+    })();
+    return true;
+  }
+
   // Popup-initiated high-level actions. Must come from an extension page
   // (no sender.tab), never from a content script.
   if (
@@ -419,7 +444,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         else result = await fillActiveTab(msg.username);
         sendResponse({ result });
       } catch (e) {
-        if (e?.code === 7) resetSession();
+        if (shouldResetSession(e)) resetSession();
         sendResponse({ error: sanitizeError(e) });
       }
     })();
@@ -435,7 +460,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         const credentials = await listCredentialsForOrigin(tabOrigin);
         sendResponse({ result: { origin: tabOrigin, credentials } });
       } catch (e) {
-        if (e?.code === 7) resetSession();
+        if (shouldResetSession(e)) resetSession();
         sendResponse({ error: sanitizeError(e) });
       }
     })();
@@ -459,7 +484,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         const password = await unsealPassword(result.password_sealed);
         sendResponse({ result: { username: result.username, password } });
       } catch (e) {
-        if (e?.code === 7) resetSession();
+        if (shouldResetSession(e)) resetSession();
         sendResponse({ error: sanitizeError(e) });
       }
     })();
@@ -492,7 +517,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         });
         sendResponse({ result: { origin: tabOrigin, username, action: result.action } });
       } catch (e) {
-        if (e?.code === 7) resetSession();
+        if (shouldResetSession(e)) resetSession();
         sendResponse({ error: sanitizeError(e) });
       }
     })();
@@ -543,7 +568,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         sendResponse({ result });
       }
     } catch (e) {
-      if (e?.code === 7) resetSession();
+      if (shouldResetSession(e)) resetSession();
       sendResponse({ error: sanitizeError(e) });
     }
   })();

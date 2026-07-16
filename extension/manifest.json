@@ -1,9 +1,9 @@
 {
   "manifest_version": 3,
-  "name": "Passport Prime Passwords",
+  "name": "Passwords for Passport Prime",
   "short_name": "Passwords",
   "version": "0.1.0",
-  "description": "Autofill passwords from your Passport Prime over WebUSB. Credentials never leave the device without on-device approval.",
+  "description": "Fill and save passwords with Passport Prime over WebUSB. Every release requires on-device approval.",
   "permissions": ["storage", "offscreen", "activeTab"],
   "host_permissions": ["http://*/*", "https://*/*"],
   "icons": {
