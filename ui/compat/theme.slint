@@ -226,14 +226,6 @@ export global Utils {
         return #2563ebff;
     }
 
-    pure public function get-card-line-top-color(color: CardColor) -> brush {
-        return get-card-bg-color(color).brighter(0.25);
-    }
-
-    pure public function get-card-line-bottom-color(color: CardColor) -> brush {
-        return get-card-bg-color(color).darker(0.25);
-    }
-
     pure public function get-card-color-picker-color(color: CardColor) -> brush {
         return get-card-bg-color(color);
     }

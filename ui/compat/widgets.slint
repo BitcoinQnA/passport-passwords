@@ -372,18 +372,6 @@ export component LineCard inherits Rectangle {
     border-radius: Size.sz6;
     clip: true;
 
-    Rectangle {
-        y: 0;
-        height: Size.sz1;
-        background: Utils.get-card-line-top-color(root.card-color);
-    }
-
-    Rectangle {
-        y: parent.height - Size.sz1;
-        height: Size.sz1;
-        background: Utils.get-card-line-bottom-color(root.card-color);
-    }
-
     @children
 }
 
