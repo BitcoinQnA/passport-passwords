@@ -47,6 +47,7 @@ impl AppState {
         cb.set_credentials(ModelRc::new(VecModel::from(rows)));
         cb.set_live_count(live);
         cb.set_archived_count(archived);
+        cb.set_next_default_color(ks.next_automatic_color());
     }
 }
 

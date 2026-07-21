@@ -26,3 +26,10 @@ Suggested Passport entries:
 
 Use any fake password. These pages prevent normal form submission and do not
 send credentials to any server.
+
+## Import demo
+
+`bitwarden-demo-export.csv` is a five-entry, Bitwarden-compatible CSV containing
+only fictional credentials. Copy it to Passport Prime storage and choose
+**Import passwords** to demonstrate source detection, conflict handling, and
+the import summary.

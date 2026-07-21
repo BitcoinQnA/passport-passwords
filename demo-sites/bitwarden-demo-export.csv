@@ -1,0 +1,6 @@
+folder,favorite,type,name,notes,fields,reprompt,login_uri,login_username,login_password,login_totp
+Demo,1,login,Foogle,"Local demo account. Fictional credentials only.",,0,http://127.0.0.1:8081,alex@foogle.test,Foogle-Demo!2026,
+Demo,1,login,Y,"Local social login demo. Fictional credentials only.",,0,http://127.0.0.1:8082,@demo,Y-Demo!2026,
+Work,0,login,GitHub Demo,"Example developer account, not a real login.",,0,https://github.com,octo-demo,Correct-Horse-47!,
+Finance,0,login,Example Bank,"Training account. No connection to a real bank.",,1,https://bank.example,demo.customer,Demo-Bank#8842,
+Shopping,0,login,Example Shop,"Sample account with a quoted note, including a comma.",,0,https://shop.example,shopper@example.test,Sample-Shop$592,

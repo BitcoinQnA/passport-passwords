@@ -23,8 +23,9 @@ pub struct CredentialRecord {
     #[zeroize(skip)]
     #[serde(default)]
     pub label: String,
-    /// Card colour index (matches `card-color-picker-model` order in
-    /// `@ui/utils.slint`). Default 0 (teal).
+    /// Card colour index (matches `CardColorPicker` order in the UI).
+    /// New standalone records begin at teal; the keystore advances the
+    /// colour for each record it inserts automatically.
     #[zeroize(skip)]
     #[serde(default = "default_color")]
     pub color: i32,
@@ -42,7 +43,7 @@ pub struct CredentialRecord {
 }
 
 fn default_color() -> i32 {
-    0
+    5
 }
 
 impl CredentialRecord {
@@ -130,5 +131,11 @@ mod tests {
         let mut r2 = r.clone();
         r2.label = "Custom".into();
         assert_eq!(r2.display_label(), "Custom");
+    }
+
+    #[test]
+    fn new_records_default_to_teal() {
+        let r = CredentialRecord::new("https://x".into(), "u".into(), "p".into());
+        assert_eq!(r.color, 5);
     }
 }

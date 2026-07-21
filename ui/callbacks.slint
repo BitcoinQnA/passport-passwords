@@ -19,6 +19,7 @@ export global Callbacks {
     in-out property <[StoredCredential]> credentials: [];
     in-out property <int> live-count: 0;
     in-out property <int> archived-count: 0;
+    in-out property <int> next-default-color: 5;
     in-out property <bool> archive-mode: false;
 
     // Currently-editing credential (populated when navigating to edit/details).
@@ -27,7 +28,7 @@ export global Callbacks {
     in-out property <string> editing-origin: "";
     in-out property <string> editing-username: "";
     in-out property <string> editing-password: "";
-    in-out property <int>    editing-color: 0;
+    in-out property <int>    editing-color: 5;
     in-out property <bool>   editing-archived: false;
     in-out property <string> editing-error-field: "";
     in-out property <string> editing-error: "";

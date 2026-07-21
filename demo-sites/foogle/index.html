@@ -160,6 +160,43 @@ SPDX-License-Identifier: GPL-3.0-or-later
         font-size: 14px;
       }
 
+      .success-view {
+        display: none;
+        grid-column: 1 / -1;
+        min-height: 320px;
+        place-items: center;
+        align-content: center;
+        gap: 16px;
+        text-align: center;
+      }
+
+      .card.is-success > :not(.success-view) { display: none; }
+      .card.is-success .success-view { display: grid; }
+
+      .success-icon {
+        width: 72px;
+        height: 72px;
+        border-radius: 50%;
+        display: grid;
+        place-items: center;
+        color: white;
+        background: var(--green);
+        font-size: 38px;
+        font-weight: 700;
+      }
+
+      .success-view h2 {
+        margin: 0;
+        font-size: 32px;
+        font-weight: 500;
+      }
+
+      .success-view p {
+        margin: 0;
+        color: var(--muted);
+        font-size: 16px;
+      }
+
       @media (max-width: 760px) {
         body { padding: 16px; }
         .card {
@@ -175,7 +212,7 @@ SPDX-License-Identifier: GPL-3.0-or-later
   </head>
   <body>
     <main class="shell">
-      <section class="card" aria-label="Foogle sign in">
+      <section id="login-card" class="card" aria-label="Foogle sign in">
         <div>
           <div class="brand" aria-label="Foogle">
             <span class="b">F</span><span class="r">o</span><span class="y">o</span><span class="b">g</span><span class="g">l</span><span class="r">e</span>
@@ -193,6 +230,7 @@ SPDX-License-Identifier: GPL-3.0-or-later
               autocomplete="username"
               inputmode="email"
               placeholder="alex@foogle.test"
+              required
             />
           </label>
           <label>
@@ -202,6 +240,7 @@ SPDX-License-Identifier: GPL-3.0-or-later
               type="password"
               autocomplete="current-password"
               placeholder="Enter your password"
+              required
             />
           </label>
           <p class="hint">Not your computer? Use a private window for this local demo.</p>
@@ -211,6 +250,12 @@ SPDX-License-Identifier: GPL-3.0-or-later
             <button type="submit">Next</button>
           </div>
         </form>
+        <div class="success-view" role="status" aria-live="polite">
+          <div class="success-icon" aria-hidden="true">✓</div>
+          <h2>You're signed in</h2>
+          <p>Welcome to Foogle, <strong id="signed-in-user"></strong>.</p>
+          <button id="sign-in-again" type="button">Sign in again</button>
+        </div>
       </section>
       <footer>
         <span>English (United Kingdom)</span>
@@ -221,10 +266,20 @@ SPDX-License-Identifier: GPL-3.0-or-later
     <script>
       const form = document.getElementById("login-form");
       const status = document.getElementById("status");
+      const card = document.getElementById("login-card");
+      const signedInUser = document.getElementById("signed-in-user");
       form.addEventListener("submit", (event) => {
         event.preventDefault();
-        const email = new FormData(form).get("email") || "demo user";
-        status.textContent = `Demo sign-in ready for ${email}.`;
+        signedInUser.textContent = new FormData(form).get("email");
+        status.textContent = "";
+        card.classList.add("is-success");
+        card.setAttribute("aria-label", "Foogle sign-in successful");
+      });
+      document.getElementById("sign-in-again").addEventListener("click", () => {
+        form.reset();
+        card.classList.remove("is-success");
+        card.setAttribute("aria-label", "Foogle sign in");
+        form.elements.email.focus();
       });
     </script>
   </body>

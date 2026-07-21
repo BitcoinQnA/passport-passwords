@@ -30,6 +30,8 @@ const BACKUP_MAGIC: &str = "vaults-bridge-backup";
 const BACKUP_VERSION: u8 = 1;
 const BACKUP_KDF_ITERATIONS: u32 = 200_000;
 const BACKUP_SALT_BYTES: usize = 16;
+const FIRST_AUTOMATIC_COLOR: i32 = 5;
+const CARD_COLOR_COUNT: i32 = 9;
 
 type HmacSha256 = Hmac<Sha256>;
 
@@ -265,6 +267,11 @@ impl Keystore {
         self.records = records;
     }
 
+    /// Colour to preselect or assign for the next newly-created credential.
+    pub fn next_automatic_color(&self) -> i32 {
+        (FIRST_AUTOMATIC_COLOR + self.records.len() as i32) % CARD_COLOR_COUNT
+    }
+
     pub fn add(&mut self, r: CredentialRecord) {
         self.records.push(r);
     }
@@ -345,6 +352,7 @@ impl Keystore {
                 }
                 (Some(_), ImportPolicy::KeepBoth) => {
                     let mut rec = CredentialRecord::new(item.origin, item.username, item.password);
+                    rec.color = self.next_automatic_color();
                     rec.label = if item.label.is_empty() {
                         String::from("(imported)")
                     } else {
@@ -358,6 +366,7 @@ impl Keystore {
                 }
                 (None, _) => {
                     let mut rec = CredentialRecord::new(item.origin, item.username, item.password);
+                    rec.color = self.next_automatic_color();
                     rec.label = item.label;
                     if !item.notes.is_empty() {
                         rec.notes = Some(item.notes);
@@ -503,6 +512,7 @@ impl CredentialStore for Keystore {
             return Ok(());
         }
         let mut rec = CredentialRecord::new(origin, username, password);
+        rec.color = self.next_automatic_color();
         if let Some(l) = label {
             rec.label = l;
         }
@@ -590,6 +600,72 @@ fn unseal(key: &[u8; 32], blob: &[u8]) -> Result<Vec<u8>, KeystoreError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn automatic_colors_start_at_teal_and_cycle_through_picker_order() {
+        let mut ks = Keystore::new(b"test-master");
+        let expected = [5, 6, 7, 8, 0, 1, 2, 3, 4, 5];
+
+        for (index, expected_color) in expected.into_iter().enumerate() {
+            assert_eq!(ks.next_automatic_color(), expected_color);
+            let mut record = CredentialRecord::new(
+                format!("https://{index}.example"),
+                format!("user-{index}"),
+                "password".into(),
+            );
+            record.color = ks.next_automatic_color();
+            ks.add(record);
+        }
+
+        let colors: Vec<i32> = ks.records().iter().map(|record| record.color).collect();
+        assert_eq!(colors, expected);
+    }
+
+    #[test]
+    fn imported_and_browser_saved_records_advance_automatic_colors() {
+        let mut ks = Keystore::new(b"test-master");
+        let items = vec![
+            ImportItem {
+                origin: "https://first.example".into(),
+                username: "first".into(),
+                password: "password".into(),
+                label: "First".into(),
+                notes: String::new(),
+            },
+            ImportItem {
+                origin: "https://second.example".into(),
+                username: "second".into(),
+                password: "password".into(),
+                label: "Second".into(),
+                notes: String::new(),
+            },
+        ];
+
+        let summary = ks.import_many(items, ImportPolicy::Skip);
+        assert_eq!(summary.imported, 2);
+        assert_eq!(ks.records()[0].color, 5);
+        assert_eq!(ks.records()[1].color, 6);
+
+        CredentialStore::upsert(
+            &mut ks,
+            "https://third.example".into(),
+            "third".into(),
+            "password".into(),
+            Some("Third".into()),
+        )
+        .unwrap();
+        assert_eq!(ks.records()[2].color, 7);
+
+        CredentialStore::upsert(
+            &mut ks,
+            "https://third.example".into(),
+            "third".into(),
+            "updated".into(),
+            None,
+        )
+        .unwrap();
+        assert_eq!(ks.records()[2].color, 7);
+    }
 
     #[test]
     fn round_trip_records_through_seal_open() {

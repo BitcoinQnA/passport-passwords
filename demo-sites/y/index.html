@@ -165,6 +165,42 @@ SPDX-License-Identifier: GPL-3.0-or-later
         font-weight: 700;
       }
 
+      .success-view {
+        display: none;
+        min-height: 460px;
+        place-items: start;
+        align-content: center;
+        gap: 18px;
+      }
+
+      .panel.is-success > :not(.success-view) { display: none; }
+      .panel.is-success .success-view { display: grid; }
+
+      .success-icon {
+        width: 64px;
+        height: 64px;
+        border-radius: 50%;
+        display: grid;
+        place-items: center;
+        color: #000;
+        background: var(--ink);
+        font-size: 34px;
+        font-weight: 900;
+      }
+
+      .success-view h2 {
+        margin: 4px 0 0;
+        font-size: 38px;
+      }
+
+      .success-view p {
+        margin: 0;
+        color: var(--muted);
+        font-size: 17px;
+      }
+
+      .success-view button { width: 100%; }
+
       @media (max-width: 860px) {
         .page {
           grid-template-columns: 1fr;
@@ -183,7 +219,7 @@ SPDX-License-Identifier: GPL-3.0-or-later
     <main class="page">
       <div class="mark" aria-hidden="true">Y</div>
 
-      <section class="panel" aria-label="Y sign in">
+      <section id="login-panel" class="panel" aria-label="Y sign in">
         <div class="small-mark" aria-hidden="true">Y</div>
         <h1>See what is happening</h1>
         <h2>Sign in to Y</h2>
@@ -196,6 +232,7 @@ SPDX-License-Identifier: GPL-3.0-or-later
               type="text"
               autocomplete="username"
               placeholder="@demo"
+              required
             />
           </label>
           <label>
@@ -205,6 +242,7 @@ SPDX-License-Identifier: GPL-3.0-or-later
               type="password"
               autocomplete="current-password"
               placeholder="Password"
+              required
             />
           </label>
           <div id="status" class="status" role="status" aria-live="polite"></div>
@@ -214,16 +252,32 @@ SPDX-License-Identifier: GPL-3.0-or-later
         </form>
 
         <p class="fine-print">Demo page for local Passport Passwords testing. This form never sends credentials to a remote service.</p>
+        <div class="success-view" role="status" aria-live="polite">
+          <div class="success-icon" aria-hidden="true">✓</div>
+          <h2>You're signed in</h2>
+          <p>Welcome back, <strong id="signed-in-user"></strong>.</p>
+          <button id="sign-in-again" type="button">Sign in again</button>
+        </div>
       </section>
     </main>
 
     <script>
       const form = document.getElementById("login-form");
       const status = document.getElementById("status");
+      const panel = document.getElementById("login-panel");
+      const signedInUser = document.getElementById("signed-in-user");
       form.addEventListener("submit", (event) => {
         event.preventDefault();
-        const username = new FormData(form).get("username") || "@demo";
-        status.textContent = `Demo sign-in ready for ${username}.`;
+        signedInUser.textContent = new FormData(form).get("username");
+        status.textContent = "";
+        panel.classList.add("is-success");
+        panel.setAttribute("aria-label", "Y sign-in successful");
+      });
+      document.getElementById("sign-in-again").addEventListener("click", () => {
+        form.reset();
+        panel.classList.remove("is-success");
+        panel.setAttribute("aria-label", "Y sign in");
+        form.elements.username.focus();
       });
     </script>
   </body>
