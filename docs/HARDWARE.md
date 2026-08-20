@@ -5,59 +5,35 @@ SPDX-License-Identifier: GPL-3.0-or-later
 
 # Running Vaults Bridge on real Passport Prime hardware
 
-The first end-to-end run on a physical Prime: build the firmware, flash it,
-onboard, pair the browser extension over WebUSB, and release a credential into a
-real login form. The on-device transport is WebUSB vendor-class — the same
-facility the Nostr Signer 1.3 validated on the `dev-v1.3.0` branch.
+The first end-to-end run on a physical Prime: install the app, onboard, pair the
+browser extension over WebUSB, and release a credential into a real login form.
+The on-device transport is WebUSB vendor-class.
 
 ## Prerequisites
 
-- A compatible private KeyOS checkout with this app integrated (see
-  [`../SDK-SETUP.md`](../SDK-SETUP.md)) and the Rust + GNU ARM toolchain.
-  Supported build hosts: **Ubuntu**, the KeyOS **Nix flake**, or **macOS (Apple
-  Silicon)** — on macOS export `AR_armv7a_unknown_xous_elf="arm-none-eabi-ar"`
-  first (see SDK-SETUP for why).
-- A Passport Prime dev unit with USB access and the SAM-BA entry procedure from
-  `KeyOS/DEVELOPMENT.md`.
+- The **Foundation SDK 1.0.0** for KeyOS 1.4, with `foundation` on `PATH` and a
+  local signing identity (see [`../SDK-SETUP.md`](../SDK-SETUP.md)).
+- A **Passport Prime running KeyOS 1.4 beta** or newer, with **Developer Mode**
+  enabled and your publisher certificate allowed (for `foundation sideload`).
 - A Chromium-family browser (Chrome, Brave, Edge, Arc). **WebUSB is not available
   in Safari or Firefox.**
 
-## 1. Build the firmware
+## 1. Build, sign, and install the app
 
-From the integrated KeyOS checkout:
-
-```sh
-cargo xtask build-all
-```
-
-`build-all` rebuilds the bootloader, recovery image, normal image, and final
-signed `boot.img`. Use it after changing the app or its logic crates so the
-flash cannot silently reuse stale image output.
-
-## 2. Flash
-
-Enter SAM-BA (hold power ~10 s, then tap power 3× at the logo and pick SAM-BA, or
-short the SAM-BA contacts per `DEVELOPMENT.md`). Then:
+This is a standalone Foundation SDK app — you install it onto a Prime already
+running KeyOS 1.4 beta, not a full firmware flash. From the repo root (see
+[`../SDK-SETUP.md`](../SDK-SETUP.md) for one-time signing setup):
 
 ```sh
-cargo xtask flash          # NO --switch if the device is already in SAM-BA
+foundation build --release
+foundation pack --release
+foundation sideload --release   # push over USB (Developer Mode + allowed publisher cert)
 ```
 
-`--switch` runs the reboot-to-SAM-BA script and will fail on a device that is
-already in SAM-BA. The default flashes the full signed `boot.img`, verifies, and
-reboots to normal mode.
+Or copy the packaged `target/keyos/gui-app-passwords.app` to the Prime and
+install it from **Settings → Apps → Install App**.
 
-> **macOS random write failure.** A transfer can fail mid-write with
-> `Status after writing N to 0 was 3` (often on the first chunk) — macOS USB
-> transfers fail randomly and `sambuca` chunks them to mitigate. It's safe to
-> just re-run `cargo xtask flash`; the device stays in SAM-BA until a fully
-> verified write completes (nothing reboots on failure). It usually succeeds on
-> the second attempt.
-
-Confirm the device re-enumerates in normal mode and reports the KeyOS version
-before continuing.
-
-## 3. First boot and onboarding
+## 2. First boot and onboarding
 
 1. Power up Prime and complete onboarding (set PIN, generate or restore a seed).
    The keystore master is derived from `security.app_seed()`, so a real seed and
@@ -66,7 +42,7 @@ before continuing.
 3. Add a credential: origin (`https://…`), username, password. It is sealed at
    rest under the app-seed-derived key.
 
-## 4. Install the extension and pair
+## 3. Install the extension and pair
 
 1. `chrome://extensions` → **Developer mode** → **Load unpacked** → `extension/`.
 2. Open the extension's **Settings** page, leave the transport on **WebUSB**, and
@@ -79,7 +55,7 @@ before continuing.
 > after each reload. If a device-control tool (e.g. the `passport-drive` MCP)
 > holds the vendor interface, disconnect it before pairing.
 
-## 5. Release a credential
+## 4. Release a credential
 
 1. Visit the matching login page (the demo gate is `https://github.com/login`).
 2. The extension offers to fill. Triggering it sends `release_credential`; the

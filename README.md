@@ -40,11 +40,9 @@ in the extension's JS). Keeping them together means the firmware and the
 extension move in lockstep and share one version. See
 [`docs/PROTOCOL.md`](docs/PROTOCOL.md) for the wire format.
 
-This repository is the only source of truth for Passwords. Do not edit a copy
-inside a KeyOS checkout directly. Use
-[`scripts/stage-keyos-app.sh`](scripts/stage-keyos-app.sh) to refresh the
-disposable KeyOS build copy from this repo and apply the required KeyOS
-integration patch.
+This repository is the only source of truth for Passwords, and it builds
+directly as a standalone Foundation SDK app (see [Building](#building)) — there
+is no KeyOS checkout to copy into or keep in sync.
 
 ## What it does
 
@@ -113,47 +111,37 @@ browser, so a host-side attacker watching USB traffic can't read it.
 - **`i18n/en.json`** — user-facing strings (localization scaffold; see
   [SDK-SETUP.md](SDK-SETUP.md)).
 
-## Quickstart
-
-> **Can you clone this and run it today?** Not as an outside developer yet — and
-> we'd rather say so up front. There are two build paths and neither is a clean
-> external `git clone && run` at the moment:
->
-> 1. **Foundation SDK (`foundation` CLI)** — the intended path. Currently blocked
->    by an SDK toolchain bug (`server-macro` uses a Rust feature removed from
->    current toolchains), so `foundation sim`/`build` fail on a clean compile.
->    Being fixed with the SDK team.
-> 2. **KeyOS monorepo (`cargo xtask`)** — works today, but needs a private
->    `Foundation-Devices/KeyOS-dev` checkout beside this repo (the app path-deps
->    into `../KeyOS-dev2`). Foundation-internal only.
->
-> The one change that unlocks external clone-and-run: repoint `Cargo.toml`'s
-> `../KeyOS-dev2` deps at the SDK's bundled KeyOS libs, and land the SDK fix.
-> **Building this repo with an AI agent?** Point it at [`AGENTS.md`](AGENTS.md) —
-> it has the exact commands, the current gotchas, and the repo map.
-
 ## Building
 
-This is a KeyOS app and builds **inside a KeyOS workspace** (it depends on KeyOS
-crates such as `slint_keyos_platform`, `security`, `server`, `usb`, `fs`, and
-`file-backed`). See [`SDK-SETUP.md`](SDK-SETUP.md) for the toolchain and
-integration, and [`TESTING.md`](TESTING.md) for the end-to-end test. In a KeyOS
-checkout the app lives at `apps/gui-app-passwords`.
+This is a **standalone Foundation SDK application**. It does not need a KeyOS
+source checkout and must not be copied into a KeyOS workspace — the `Cargo.toml`
+KeyOS dependencies resolve through the git-ignored `.foundation-sdk/current`
+mapping the Foundation CLI creates automatically.
 
-Dropping the app into a KeyOS tree needs four integration edits (workspace
-member, launcher tile, dev-app lists, and the dynamic USB interface lifecycle)
-plus monorepo-relative Cargo paths. Stage everything from this repo with:
+**Requirements:** a Passport Prime on KeyOS 1.4 beta or newer, the Foundation
+SDK 1.0.0 for KeyOS 1.4, and Nix + Git + the SDK's `foundation` command on
+`PATH`. Run everything from the repo root:
 
-```bash
-./scripts/stage-keyos-app.sh /path/to/KeyOS-dev
+```sh
+foundation doctor          # verify the SDK env; run `foundation develop` if it asks
+foundation cert gen passwords-dev   # one-time: your local signing identity
+foundation build --release
+foundation pack --release           # → target/keyos/gui-app-passwords.app
 ```
 
-The exact edits are documented in
-[`docs/KEYOS-PATCHES.md`](docs/KEYOS-PATCHES.md) and
-[`docs/keyos-integration.patch`](docs/keyos-integration.patch).
+Install the `.app` on Prime from **Settings → Apps → Install App**, or push a
+dev build straight over USB with `foundation sideload --release` (needs
+Developer Mode on and the publisher certificate allowed — see
+[`SDK-SETUP.md`](SDK-SETUP.md)). Building with an AI agent? Point it at
+[`AGENTS.md`](AGENTS.md).
 
-The extension installs unpacked (`chrome://extensions` → Developer mode → Load
-unpacked → `extension/`); see [`extension/README.md`](extension/README.md).
+The app ID is fixed at `0x50617373776f72647300000000000000`; never change it for
+an upgrade — KeyOS derives the app seed from it, so a new ID means a new keystore.
+
+The companion extension installs unpacked (`chrome://extensions` → Developer
+mode → Load unpacked → `extension/`); see
+[`extension/README.md`](extension/README.md). The full end-to-end browser test
+is in [`TESTING.md`](TESTING.md).
 
 ## Status
 

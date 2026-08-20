@@ -20,11 +20,11 @@ Both tracks use the same extension.
 
 ## Track A — Simulator (no hardware)
 
-1. **Run the app in the sim.** From your KeyOS checkout (app integrated per
-   [`SDK-SETUP.md`](SDK-SETUP.md)):
+1. **Run the app in the simulator.** From the repo root, with the Foundation SDK
+   installed (see [`SDK-SETUP.md`](SDK-SETUP.md)):
 
    ```bash
-   just sim          # or: cargo xtask run --hosted
+   foundation sim
    ```
 
    Open **Passwords** in the simulator and add a credential (origin + username +
@@ -47,19 +47,18 @@ Both tracks use the same extension.
 
 ## Track B — Device (Passport Prime)
 
-1. **Flash a KeyOS build that includes the app.** Build the image (Ubuntu, the
-   KeyOS Nix shell, or macOS with the ARM toolchain — see
-   [`SDK-SETUP.md`](SDK-SETUP.md)), then flash over USB (SAM-BA):
+1. **Install the app on a Prime running KeyOS 1.4 beta.** Build, sign, and push
+   it over USB with the Foundation SDK (see [`SDK-SETUP.md`](SDK-SETUP.md)):
 
    ```bash
-   cargo xtask build-all
-   cargo xtask flash
+   foundation build --release
+   foundation pack --release
+   foundation sideload --release
    ```
 
-   If the device is already in SAM-BA mode, flash **without** `--switch`. On
-   macOS a transfer can fail randomly mid-write (`Status after writing … was 3`);
-   it's safe to just re-run `cargo xtask flash` — it usually succeeds on the
-   second attempt.
+   Sideload needs Developer Mode enabled on Prime and your publisher certificate
+   allowed. Alternatively, install the packaged `target/keyos/gui-app-passwords.app`
+   from **Settings → Apps → Install App**.
 
 2. **Open the app and add a credential.** Launch **Passwords** on Passport
    (hidden apps / Secret Menu) and add an origin + username + password. The
