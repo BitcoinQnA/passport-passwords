@@ -1,5 +1,9 @@
 /target
 /logic/target
+# CLI-owned: project-local SDK mapping, generated UI map, generated manifest
+.foundation-sdk/
+ui/ui
+manifest.toml
 **/*.rs.bk
 .DS_Store
 .codex/
@@ -7,3 +11,6 @@
 ui/gen/
 # Extension scratch
 *.zip
+resources/fonts
+resources/icons
+resources/images

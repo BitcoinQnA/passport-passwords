@@ -1,0 +1,32 @@
+{
+  "version": 1,
+  "id": "app_theme",
+  "name": "Passwords",
+  "parent": "base_theme",
+  "tokens": {
+    "colors": {
+      "light": {
+        "primary": "#4ADE80",
+        "primary-pressed": "#3FBF6D",
+        "secondary": "#3A3A3A",
+        "danger": "#FFB4AB",
+        "surface": "#2A2A2A",
+        "background": "#1A1A1A",
+        "text": "#F9F9F9",
+        "text-muted": "#9A9A9A",
+        "transparent": "#00000000"
+      },
+      "dark": {
+        "primary": "#4ADE80",
+        "primary-pressed": "#3FBF6D",
+        "secondary": "#3A3A3A",
+        "danger": "#FFB4AB",
+        "surface": "#2A2A2A",
+        "background": "#1A1A1A",
+        "text": "#F9F9F9",
+        "text-muted": "#9A9A9A",
+        "transparent": "#00000000"
+      }
+    }
+  }
+}

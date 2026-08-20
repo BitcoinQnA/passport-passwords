@@ -6,6 +6,7 @@ mod import_flow;
 mod master_key;
 mod persist;
 mod state;
+mod theme;
 mod transport;
 
 use std::{
@@ -53,6 +54,8 @@ fn app_main(_cx: AppContext, ui: AppWindow) {
     log_server::init_wait(env!("CARGO_CRATE_NAME")).unwrap();
     log::set_max_level(log::LevelFilter::Info);
     log::info!("Passwords starting");
+
+    theme::init(&ui);
 
     let store = Arc::new(Mutex::new(KeystoreStore::open()));
 

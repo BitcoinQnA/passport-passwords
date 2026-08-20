@@ -7,9 +7,11 @@ friendly-app-name = "Passwords"
 launcher-app-name = "Passwords"
 description = "Hardware-backed password manager for Passport Prime"
 icon = "resources/icon.svg"
+theme = "resources/theme.json"
 app-id = "0x50617373776f72647300000000000000"
 version = "0.1.0"
-min-keyos-version = "1.3.0"
+min-keyos-version = "1.4.0"
+signing-identity = "passwords"
 
 [publisher]
 name = "Foundation Devices, Inc."
