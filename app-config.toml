@@ -33,7 +33,6 @@ support-url = "https://foundation.xyz"
     "GetMetadata",
     "NextEntry",
     "Flush",
-    "FlushFs",
     "Remove",
     "Rename",
     "AtomicCopy",
@@ -63,15 +62,4 @@ support-url = "https://foundation.xyz"
 ]
 "os/security" = [
     "GetAppSeed",
-]
-"os/usbdev" = [
-    "RegisterCapability",
-    "RegisterInterface",
-    "RegisterSetupResponder",
-    "ReadEndpoint",
-    "WriteEndpoint",
-    "SetEndpointStalled",
-    "IsDeviceEmulationEnabled",
-    "WaitForConnection",
-    "ResetController",
 ]

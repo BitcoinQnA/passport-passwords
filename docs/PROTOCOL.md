@@ -6,39 +6,32 @@ app. Both sides implement this with types from
 
 ## Layers
 
-1. **Transport.** WebUSB vendor-class interface (class/subclass/protocol
-   `0xFF/0x50/0x01`), two 64-byte interrupt endpoints. The app-specific
-   subclass/protocol prevents other Prime extensions claiming this interface.
-   It uses the same transport shape as
-   nostr-signer 1.3.
+1. **Transport.** WebSocket in the hosted simulator. The planned hardware route
+   is QLv2 over KeyOS's shared USB transport; see
+   [`QLV2-MIGRATION.md`](QLV2-MIGRATION.md).
 2. **Framing.** Newline-delimited JSON. Each request/response is one
-   `\n`-terminated UTF-8 JSON object. Aligns with the Nostr Signer's
-   WebUSB transport so Prime's `os/usbdev` facility is exercised the
-   same way by both apps. See
-   [`vaults-bridge-protocol::frame`].
+   `\n`-terminated UTF-8 JSON object. See
+   [`vaults-bridge-protocol::frame`]. A QLv2 adapter may carry each JSON object
+   as a message without exposing raw USB endpoints to the app.
 3. **Messages.** JSON request/response. See
    [`vaults-bridge-protocol::message`].
 
 ## Transport
 
-- USB vendor-class interface, registered by `gui-app-passwords` while
-  the app is open and deregistered when it is hidden.
-- WebUSB + MS OS 2.0 Platform Capability descriptors (BOS) so Chromium
-  picks the device up via `navigator.usb.requestDevice` without driver
-  install on macOS / Linux. Windows auto-bind via the MS OS 2.0
-  descriptor *set* is a known gap (descriptor *capability* is
-  exposed; Zadig is the workaround until the set lands).
-- Coexistence with FIDO HID and (future) Nostr Signer's vendor
-  interface: KeyOS is a one-foreground-app system, so Vaults Bridge's
-  interface never competes with Nostr Signer's at runtime.
+- The simulator listens on `ws://127.0.0.1:9876`.
+- The Foundation SDK 1.0 hardware app is local-only and requests no raw USB
+  permission.
+- The future QLv2 adapter must preserve request boundaries, return responses to
+  the originating browser session, and disconnect cleanly when the app closes.
+- Transport code must not supply the website origin. The extension derives it
+  from the requesting tab before constructing the protocol request.
 
 ## Framing
 
-Every payload is a UTF-8 JSON object terminated by exactly one `\n`.
-The receiver accumulates bytes from the IN endpoint into a line buffer,
-splits on `\n`, and parses each non-empty line as a JSON message. The
-host writes payloads to the OUT endpoint in 64-byte chunks (matching
-the interrupt endpoint max packet size).
+Every stream payload is a UTF-8 JSON object terminated by exactly one `\n`.
+The receiver accumulates bytes into a line buffer, splits on `\n`, and parses
+each non-empty line as a JSON message. Message-oriented transports may carry
+one JSON object per message and use the same parser at the adapter boundary.
 
 Implementation: `vaults_bridge_protocol::frame` (`fn frame`,
 `struct LineSplitter`).

@@ -43,7 +43,10 @@ pub fn export_encrypted_backup(
     ui_weak: &Weak<AppWindow>,
 ) {
     if passphrase.len() < 12 {
-        set_error(ui_weak, "Use a backup passphrase of at least 12 characters.");
+        set_error(
+            ui_weak,
+            "Use a backup passphrase of at least 12 characters.",
+        );
         return;
     }
 
@@ -71,11 +74,18 @@ pub fn export_encrypted_backup(
         set_error(ui_weak, "Could not write the backup file.");
         return;
     }
-    set_success(ui_weak, &format!("Encrypted backup saved to {path}. Keep its passphrase safe."));
+    set_success(
+        ui_weak,
+        &format!("Encrypted backup saved to {path}. Keep its passphrase safe."),
+    );
 }
 
 #[cfg(not(target_os = "xous"))]
-pub fn pick_restore_backup(_pending: &PendingRestore, _passphrase: &[u8], ui_weak: &Weak<AppWindow>) {
+pub fn pick_restore_backup(
+    _pending: &PendingRestore,
+    _passphrase: &[u8],
+    ui_weak: &Weak<AppWindow>,
+) {
     set_error(ui_weak, "Backup restore is only available on hardware.");
 }
 
@@ -157,7 +167,7 @@ pub fn set_success(ui_weak: &Weak<AppWindow>, msg: &str) {
 #[cfg(target_os = "xous")]
 fn select_backup_dir() -> Result<Option<(String, slint_keyos_platform::fs::Location)>, String> {
     use slint_keyos_platform::{
-        gui_server_api::navigation::filepicker::{AllowedLocations, Location, SelectFileOptions},
+        gui_server_api::navigation::filepicker::{AllowedLocations, SelectFileOptions},
         navigation::select_file,
     };
 
@@ -180,7 +190,7 @@ fn select_backup_dir() -> Result<Option<(String, slint_keyos_platform::fs::Locat
 fn select_backup_file() -> Result<Option<(String, slint_keyos_platform::fs::Location)>, String> {
     use slint_keyos_platform::{
         gui_server_api::navigation::filepicker::{
-            AllowedExtensions, AllowedLocations, Location, SelectFileOptions,
+            AllowedExtensions, AllowedLocations, SelectFileOptions,
         },
         navigation::select_file,
     };
@@ -214,7 +224,11 @@ fn map_location(
 }
 
 #[cfg(target_os = "xous")]
-fn write_file(path: &str, location: slint_keyos_platform::fs::Location, bytes: &[u8]) -> Result<(), String> {
+fn write_file(
+    path: &str,
+    location: slint_keyos_platform::fs::Location,
+    bytes: &[u8],
+) -> Result<(), String> {
     use std::io::Write;
 
     use slint_keyos_platform::fs::{FileSystem, OpenFlags};
@@ -223,7 +237,15 @@ fn write_file(path: &str, location: slint_keyos_platform::fs::Location, bytes: &
 
     let fs: FileSystem<FileSystemPermissions> = FileSystem::default();
     let mut file = fs
-        .open_file(path.to_string(), location, OpenFlags { read: false, write: true, create: true })
+        .open_file(
+            path.to_string(),
+            location,
+            OpenFlags {
+                read: false,
+                write: true,
+                create: true,
+            },
+        )
         .map_err(|e| format!("open: {e:?}"))?;
     file.write_all(bytes).map_err(|e| format!("write: {e:?}"))?;
     file.flush().map_err(|e| format!("flush: {e:?}"))?;
@@ -240,10 +262,19 @@ fn read_file(path: &str, location: slint_keyos_platform::fs::Location) -> Result
 
     let fs: FileSystem<FileSystemPermissions> = FileSystem::default();
     let mut file = fs
-        .open_file(path.to_string(), location, OpenFlags { read: true, write: false, create: false })
+        .open_file(
+            path.to_string(),
+            location,
+            OpenFlags {
+                read: true,
+                write: false,
+                create: false,
+            },
+        )
         .map_err(|e| format!("open: {e:?}"))?;
     let mut buf = Vec::new();
-    file.read_to_end(&mut buf).map_err(|e| format!("read: {e:?}"))?;
+    file.read_to_end(&mut buf)
+        .map_err(|e| format!("read: {e:?}"))?;
     Ok(buf)
 }
 

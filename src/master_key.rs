@@ -30,6 +30,6 @@ impl KeyOsAppSeedSource {
     pub fn fetch(&self) -> Result<Zeroizing<[u8; 32]>, MasterKeyError> {
         let security = Security::default();
         let raw = security.app_seed().map_err(|_| MasterKeyError::Denied)?;
-        Ok(Zeroizing::new(raw))
+        Ok(Zeroizing::new(*raw.as_bytes()))
     }
 }

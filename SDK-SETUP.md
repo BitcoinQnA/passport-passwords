@@ -18,6 +18,12 @@ checkout and must not be copied into a KeyOS workspace.
 5. Build and package with `foundation build --release` then
    `foundation pack --release`.
 
+The SDK 1.0 package is a local hardware vault. It intentionally does not request
+raw `os/usbdev` permissions because independently signed apps cannot receive
+them. Use `foundation sim` and the extension's simulator mode for browser tests.
+The future hardware browser route is documented in
+[`docs/QLV2-MIGRATION.md`](docs/QLV2-MIGRATION.md).
+
 The CLI owns `.foundation-sdk/current`, `ui/ui`, `manifest.toml`, and `target/`.
 They are generated and git-ignored. Do not commit them or replace their paths
 with paths to a local KeyOS checkout — the `Cargo.toml` dependencies resolve

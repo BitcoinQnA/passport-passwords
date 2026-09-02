@@ -22,7 +22,6 @@ server = { path = ".foundation-sdk/current/lib/keyos/server" }
 settings = { path = ".foundation-sdk/current/lib/keyos/api/settings" }
 slint-keyos-platform = { path = ".foundation-sdk/current/lib/keyos/slint-keyos-platform/runtime" }
 foundation-themes = { path = ".foundation-sdk/current/lib/keyos/sdk/crates/foundation-themes" }
-usb = { path = ".foundation-sdk/current/lib/keyos/api/usb" }
 file-backed = { path = ".foundation-sdk/current/lib/keyos/utils/file-backed" }
 fs = { path = ".foundation-sdk/current/lib/keyos/api/fs" }
 
@@ -63,19 +62,6 @@ slint-keyos-platform-build = { path = ".foundation-sdk/current/lib/keyos/slint-k
 
 [patch.crates-io]
 getrandom = { path = ".foundation-sdk/current/lib/keyos/imports/getrandom" }
-# Pin the Slint graph to the exact Foundation fork shipped by the SDK so two
-# Slint ABIs cannot enter the device link (matches the Cake signer / 1.4 SDK).
-slint = { git = "https://github.com/Foundation-Devices/slint.git", tag = "v1.17.0-foundation2" }
-slint-build = { git = "https://github.com/Foundation-Devices/slint.git", tag = "v1.17.0-foundation2" }
-slint-macros = { git = "https://github.com/Foundation-Devices/slint.git", tag = "v1.17.0-foundation2" }
-i-slint-common = { git = "https://github.com/Foundation-Devices/slint.git", tag = "v1.17.0-foundation2" }
-i-slint-compiler = { git = "https://github.com/Foundation-Devices/slint.git", tag = "v1.17.0-foundation2" }
-i-slint-core = { git = "https://github.com/Foundation-Devices/slint.git", tag = "v1.17.0-foundation2" }
-i-slint-core-macros = { git = "https://github.com/Foundation-Devices/slint.git", tag = "v1.17.0-foundation2" }
-i-slint-backend-selector = { git = "https://github.com/Foundation-Devices/slint.git", tag = "v1.17.0-foundation2" }
-i-slint-renderer-software = { git = "https://github.com/Foundation-Devices/slint.git", tag = "v1.17.0-foundation2" }
-const-field-offset = { git = "https://github.com/Foundation-Devices/slint.git", tag = "v1.17.0-foundation2" }
-const-field-offset-macro = { git = "https://github.com/Foundation-Devices/slint.git", tag = "v1.17.0-foundation2" }
 
 [profile.dev]
 opt-level = 2

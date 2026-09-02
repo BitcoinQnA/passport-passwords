@@ -5,14 +5,13 @@ SPDX-License-Identifier: GPL-3.0-or-later
 
 # Testing Vaults Bridge end to end
 
-Vaults Bridge is exercised through the browser: load the extension, point it at a
-login form, and watch each release request surface on Passport for approval.
-There are two transports — pick the track that matches your setup.
+Vaults Bridge has two supported test tracks. Use the simulator for the complete
+browser flow and hardware for the independently signed local-vault flow.
 
 | Track | Device side | Transport | Needs hardware |
 |-------|-------------|-----------|----------------|
 | **A — Simulator** | KeyOS hosted sim | WebSocket `ws://127.0.0.1:9876` | No |
-| **B — Device** | Passport Prime | WebUSB | Yes |
+| **B - Device** | Passport Prime | Local vault | Yes |
 
 Both tracks use the same extension.
 
@@ -45,7 +44,7 @@ Both tracks use the same extension.
 
 ---
 
-## Track B — Device (Passport Prime)
+## Track B - Device local vault
 
 1. **Install the app on a Prime running KeyOS 1.4 beta.** Build, sign, and push
    it over USB with the Foundation SDK (see [`SDK-SETUP.md`](SDK-SETUP.md)):
@@ -60,25 +59,21 @@ Both tracks use the same extension.
    allowed. Alternatively, install the packaged `target/keyos/gui-app-passwords.app`
    from **Settings → Apps → Install App**.
 
-2. **Open the app and add a credential.** Launch **Passwords** on Passport
-   (hidden apps / Secret Menu) and add an origin + username + password. The
-   credential is sealed to this device.
+2. **Exercise the local vault.** Launch **Passwords** and add, inspect, edit,
+   archive, restore, and permanently delete a credential. Confirm search and
+   password generation work without a host connection.
 
-3. **Load the extension** (`chrome://extensions` → Developer mode → Load
-   unpacked → `extension/`). Leave it on the default **WebUSB** transport.
+3. **Exercise persistence.** Close and relaunch Passwords. Confirm the record is
+   restored from app-scoped encrypted storage.
 
-4. **Pair over WebUSB.** Open the extension's **Settings** page and click
-   **Pair Passport Prime**, then select your Prime in the Chromium WebUSB picker
-   (this requires a user gesture, which is why it is initiated from the options
-   page). The device registers a vendor-class interface
-   (class/subclass/protocol = `0xFF/0x50/0x01`) with two 64-byte interrupt
-   endpoints. WebUSB pairing is per-extension and drops on reload — re-pair after
-   reloading the extension.
+4. **Exercise import and backup.** Import a supported CSV from User, Airlock, or
+   external USB storage. Export an encrypted `.vbpw` backup, then restore it and
+   test skip, replace, and keep-both conflict handling.
 
-5. **Fill a real login form.** Visit the matching site (the demo gate is
-   `https://github.com/login`). The extension offers matching saved logins;
-   approving the selected release **on Passport** returns the credential — with
-   the password sealed under the ECDH session key — and the form fills.
+The SDK 1.0 app does not register a WebUSB interface. Raw `os/usbdev` access is
+not grantable to independently signed apps. Hardware browser tests resume when
+the public QLv2 app route and browser adapter land; see
+[`docs/QLV2-MIGRATION.md`](docs/QLV2-MIGRATION.md).
 
 ---
 
@@ -106,9 +101,5 @@ Both tracks use the same extension.
 
 - **Simulator credential state** lives under the app's data dir; deleting it
   resets stored credentials in the sim.
-- This repo ships the **WebUSB** extension build that matches
-  `src/transport/webusb.rs`. Earlier WebSerial/CDC-ACM experiments are not
-  included.
-- Production USB VID/PID for the vendor interface is still TBD (see
-  [`docs/PROTOCOL.md`](docs/PROTOCOL.md)); dev builds pair by device selection in
-  the WebUSB picker.
+- Hardware browser testing starts after the QLv2 SDK route and browser adapter
+  described in [`docs/QLV2-MIGRATION.md`](docs/QLV2-MIGRATION.md) land.

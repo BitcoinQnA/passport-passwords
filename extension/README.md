@@ -1,24 +1,21 @@
-# Vaults Bridge — Browser Extension (WebUSB build)
+# Vaults Bridge browser extension
 
 Chromium (MV3) extension that detects login forms, verifies the requesting
-origin, and brokers credential releases to Passport Prime over **WebUSB** — no
-native messaging host, no driver install on macOS/Linux. It speaks the Vaults
-Bridge wire protocol (newline-delimited JSON over a vendor-class interface)
-directly through `navigator.usb`. See [`../docs/PROTOCOL.md`](../docs/PROTOCOL.md).
+origin, and brokers credential releases through the Vaults Bridge protocol.
+Use WebSocket simulator mode with Foundation SDK 1.0. The WebUSB adapter
+targets the earlier in-tree proof of concept and cannot connect to an
+independently signed SDK app. Hardware connectivity will move to QLv2; see
+[`../docs/QLV2-MIGRATION.md`](../docs/QLV2-MIGRATION.md).
 
 ## Install (unpacked)
 
 1. `chrome://extensions` → enable **Developer mode**.
 2. **Load unpacked** → select this `extension/` directory.
-3. Open the extension's **Settings** (options) page to pair:
-   - **WebUSB** (default) — click **Pair Passport Prime** and pick your Prime in
-     the Chromium picker. The grant is per-extension and drops on reload.
-   - **Developer mode → Simulator mode** (WebSocket) — hidden by default;
-     connects to `ws://127.0.0.1:9876` for hosted-mode development against a
-     host build of the app (no hardware).
+3. Open the extension's **Settings** page, enable **Developer mode**, then enable
+   **Simulator mode**. It connects to `ws://127.0.0.1:9876`.
 
-A user gesture is required for the WebUSB picker, which is why pairing is
-initiated from the options page rather than automatically.
+The WebUSB controls remain for protocol development and the legacy in-tree
+build. They do not connect to the Foundation SDK 1.0 hardware package.
 
 ## Files
 
@@ -29,7 +26,7 @@ content.js             login-form detection, inline account chooser, and fill
 offscreen.{html,js}    offscreen document that keeps the WebUSB session alive across SW recycles
 options.{html,js,css}  Pair / Forget device, WebUSB ↔ simulator transport toggle
 popup.{html,js,css}    connection status, "manage on device" link
-webusb-transport.js    vendor-class framing + chunked OUT writes (mirrors src/transport/webusb.rs)
+webusb-transport.js    legacy vendor-class framing retained for protocol migration
 icons/                 toolbar / store icons
 ```
 

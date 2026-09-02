@@ -3,20 +3,16 @@
 
 //! Transport abstraction for Vaults Bridge.
 //!
-//! Two transports compile-gate by `cfg(keyos)`:
+//! Two transports compile-gate by target:
 //!
 //!   - **WebSocket** on `cfg(not(keyos))` for the hosted-mode simulator. Lets the browser extension talk to a
 //!     host-side build of the app during development without a Prime.
 //!
-//!   - **WebUSB vendor-class** on `cfg(keyos)` for hardware. The app registers a vendor-class interface
-//!     (class/subclass/protocol 0xFF/0x50/0x01) with two 64-byte interrupt endpoints plus the WebUSB and MS
-//!     OS 2.0 Platform Capability descriptors. The browser extension reaches it via `navigator.usb`.
+//!   - **Local vault** on SDK hardware builds. The public SDK does not expose the USB device service yet, so
+//!     the browser bridge stays disabled while local credential, import, backup, and restore flows remain usable.
 //!
-//! Wire format on both transports: 64-byte interrupt-endpoint framing
-//! (see `vaults-bridge-protocol::frame`) carrying JSON payloads.
-//!
-//! This split keeps the USB implementation off the host build (it needs
-//! the `os/usbdev` server which only exists on device).
+//! The browser protocol remains transport-independent so a QLv2 adapter can
+//! replace the local hardware adapter when the public SDK exposes that route.
 
 use std::sync::{Mutex, OnceLock};
 
@@ -26,9 +22,9 @@ mod websocket;
 pub use websocket::serve;
 
 #[cfg(keyos)]
-mod webusb;
+mod local;
 #[cfg(keyos)]
-pub use webusb::serve;
+pub use local::serve;
 
 /// Shared, human-readable status line the UI banner mirrors.
 pub fn status() -> &'static Mutex<String> {

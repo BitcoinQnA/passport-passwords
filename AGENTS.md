@@ -10,13 +10,14 @@ see [`README.md`](README.md), [`SDK-SETUP.md`](SDK-SETUP.md), [`TESTING.md`](TES
 
 ## What this is
 
-**Vaults Bridge** — a hardware-backed password manager for the Foundation
+**Vaults Bridge** is a hardware-backed password manager for the Foundation
 Passport Prime, in two halves that ship together:
 
 - **`/`** — a KeyOS (Rust + Slint) app that holds credentials sealed to the
   device and shows an on-device approval screen for every release.
-- **`extension/`** — a Chromium MV3 extension that detects login forms, verifies
-  the origin, and talks to Passport over WebUSB.
+- **`extension/`** is a Chromium MV3 extension that detects login forms and
+  verifies the origin. It uses WebSocket with the simulator today. The public
+  SDK hardware route is waiting for a third-party QLv2 API.
 
 The KeyOS-free crypto/protocol core lives in `logic/` and is `cargo test`-able on
 the host with no device.
@@ -28,6 +29,14 @@ It builds with the Foundation SDK alone — **no KeyOS source checkout**. The
 `.foundation-sdk/current` mapping the CLI creates. Never repoint them at a local
 KeyOS checkout, and never commit `.foundation-sdk/`, `ui/ui`, or `manifest.toml`
 (the CLI owns those).
+
+## Transport status
+
+SDK 1.0 does not ship `api/usb` or grant raw `os/usbdev` messages to
+independently signed apps. Hardware SDK builds use `src/transport/local.rs` so
+the vault, import, backup, and restore flows remain usable. The planned browser
+route is QLv2 over the shared USB transport; see
+`docs/QLV2-MIGRATION.md`.
 
 ## Prerequisites
 
@@ -57,7 +66,7 @@ foundation sideload --release        # optional: push to a connected Prime over 
 | Path | What |
 |---|---|
 | `logic/` | KeyOS-free core: `vaults-bridge-{core,protocol,keystore,import}`. `cargo test`-able. Start here for logic changes. |
-| `src/` | KeyOS/Slint app shell: engine wiring, approval UI glue, keystore persistence, `theme.rs`, transports (`webusb` device / `websocket` sim). |
+| `src/` | KeyOS/Slint app shell: engine wiring, approval UI glue, keystore persistence, `theme.rs`, and target-specific transport adapters. |
 | `ui/` | Slint pages under `ui/pages/*` + `ui/compat/` (the SDK `@ui` shim). **`ui/gen/**` and `ui/ui` are generated — never hand-edit.** |
 | `extension/` | Chromium WebUSB extension. `background.js` holds the origin-verification security gate. |
 | `resources/` | App `icon.svg` + `theme.json`. |

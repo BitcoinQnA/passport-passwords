@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import {
-    CardColor, CurrentTheme, Images, Importance, Palette, Size, UISize, Utils,
+    CardColor, Images, Importance, Palette, Size, UISize, Utils,
 } from "theme.slint";
 
 export component BaseWindow inherits Window {
@@ -401,10 +401,13 @@ export component WrappedIcon inherits Rectangle {
     height: 184px;
     background: Palette.transparent;
 
-    Image {
-        source: Images.common("images/" + root.outer-icon);
+    Rectangle {
         width: parent.width;
         height: parent.height;
+        border-radius: self.width / 2;
+        border-width: 10px;
+        border-color: Palette.border-primary;
+        background: Palette.transparent;
     }
 
     VerticalLayout {
@@ -698,15 +701,10 @@ export component ShieldPage inherits Rectangle {
         width: UISize.screen-width - 10px;
         height: parent.height - Size.sz1;
         clip: false;
-
-        Image {
-            x: -Size.sz4;
-            y: -Size.sz2;
-            width: parent.width + Size.sz8;
-            height: parent.height + Size.sz8;
-            source: Images.nine-slice(CurrentTheme.is-dark ? "images/shield-bg-dark" : "images/shield-bg");
-            image-fit: contain;
-        }
+        border-radius: Size.sz6;
+        border-width: 1px;
+        border-color: Palette.border-primary;
+        background: Palette.background-primary-alternative;
 
         VerticalLayout {
             y: Size.sz6;

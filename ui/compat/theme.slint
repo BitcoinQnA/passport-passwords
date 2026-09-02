@@ -1,8 +1,8 @@
 // SPDX-FileCopyrightText: 2026 Foundation Devices, Inc. <hello@foundation.xyz>
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { Images } from "@ui/theme.slint";
-export { Images }
+import { Images, Theme } from "@ui/theme.slint";
+export { Images, Theme }
 
 export global Size {
     out property <length> zero: 0px;
@@ -46,16 +46,9 @@ export enum Importance {
     white,
 }
 
-@rust-attr(repr(u8))
-export enum Palettes {
-    light,
-    dark,
-}
-
 export global CurrentTheme {
-    in-out property <Palettes> palette: Palettes.light;
-    out property <bool> is-dark: palette == Palettes.dark;
-    out property <bool> is-light: palette == Palettes.light;
+    out property <bool> is-dark: Theme.is-dark;
+    out property <bool> is-light: !Theme.is-dark;
 }
 
 export global BrandColor {
