@@ -18,12 +18,22 @@ use futures_util::{SinkExt, StreamExt};
 use ql_codec::{Decode, Encode};
 use ql_host::{PeerBundle, QlIdentity, Session, StreamOptions, Transport};
 use tokio::net::{TcpListener, TcpStream};
-use tokio_tungstenite::tungstenite::Message;
+use tokio_tungstenite::tungstenite::{
+    handshake::server::{ErrorResponse as HandshakeError, Request as HandshakeRequest},
+    Message,
+};
 use vaults_bridge_ql::{BridgeFrame, RequestBridgeFrame, APP_ID, MAX_FRAME_BYTES};
 
 /// Runs `ql-usb-relay` next to Passport, over the box's SSH connection to Jarvis
 const DEFAULT_RELAY: &str = "ssh -o BatchMode=yes -o ConnectTimeout=30 -o ServerAliveInterval=15 \
     jarvis@100.80.55.66 /home/jarvis/prime-dev-build/ql-usb-relay";
+
+/// Chromium's ID for an unpacked extension is derived from its path; this is the ID of
+/// /workspace/prime-ql-autofill/passport-passwords/extension.
+const DEFAULT_EXTENSION_ORIGIN: &str = "chrome-extension://hmhfapggphalabfmcdkkocjgbggbhilf";
+
+/// How long a shown invite stays usable
+const INVITE_TIMEOUT: Duration = Duration::from_secs(10 * 60);
 
 #[derive(Parser)]
 #[command(about = "Carries the Passwords extension's WebSocket to the Passwords app on Passport Prime over QLv2, through a USB relay")]
@@ -45,8 +55,13 @@ enum Command {
         #[arg(long)]
         name: String,
     },
-    /// Pair with the code on Passport's Settings > Quantum Link > Connect new peer page.
-    Pair { code: String },
+    /// Show a code for Passport to scan (Settings > Quantum Link > Connect new peer > Scan a code),
+    /// and pair once it did. The code goes from this computer's screen to Passport's camera only.
+    Invite {
+        /// Where to write the code as a QR image, to show to Passport
+        #[arg(long, default_value = "/workspace/prime-ql-autofill/pairing-qr.png")]
+        qr_png: PathBuf,
+    },
     /// Check that the relay reaches Passport's QL USB interface, without a session.
     Probe,
     /// Serve the extension.
@@ -57,6 +72,10 @@ enum Command {
         /// Loopback address the extension connects to
         #[arg(long, default_value = "127.0.0.1:9876")]
         listen: String,
+        /// The only WebSocket Origin accepted: the Passwords extension as loaded unpacked from
+        /// /workspace/prime-ql-autofill/passport-passwords/extension (its ID follows from that path)
+        #[arg(long, default_value = DEFAULT_EXTENSION_ORIGIN)]
+        allowed_origin: String,
     },
 }
 
@@ -82,26 +101,66 @@ async fn run(cli: Cli) -> Result<()> {
                 bail!("{} exists already", path.display());
             }
             let identity = ql_host::generate_identity(&name);
-            println!("generated {} ({name})", identity.qid);
-            save(&path, &State { identity, peers: Vec::new() })
+            save(&path, &State { identity: identity.clone(), peers: Vec::new() })?;
+            println!("generated the identity {name:?}");
+            println!("QID {}", grouped_qid(&identity.qid.to_string()));
+            println!("Passport shows this QID on the new peer's page once paired: check it matches.");
+            Ok(())
         }
-        Command::Pair { code } => {
-            let mut state = load(&path)?;
-            let (session, peer) = Session::pair(open_relay(&relay)?, state.identity.clone(), &code).await?;
+        Command::Invite { qr_png } => invite(&path, &relay, &qr_png).await,
+        Command::Probe => probe(&relay).await,
+        Command::Serve { peer, listen, allowed_origin } => {
+            let state = load(&path)?;
+            let peer = select_peer(&state.peers, peer.as_deref())?.clone();
+            let link = Link { identity: state.identity, peer, relay, allowed_origin, session: RefCell::new(None) };
+            serve(Rc::new(link), &listen).await
+        }
+    }
+}
+
+/// Shows an invite as a QR image and pairs once Passport scanned it. Any failure ends this
+/// invite for good: it may mean someone else raced for it, so the user starts over with a new one.
+async fn invite(path: &Path, relay: &str, qr_png: &Path) -> Result<()> {
+    let mut state = load(path)?;
+    let (code, pairing) = Session::invite(open_relay(relay)?, state.identity.clone());
+    write_qr_png(&code, qr_png)?;
+    println!("Pairing QR written to {}", qr_png.display());
+    println!("On Passport: Settings > Quantum Link > Connect new peer > Scan a code, then scan it.");
+    println!("This computer is {:?}, QID {}", state.identity.name, grouped_qid(&state.identity.qid.to_string()));
+    let result = tokio::time::timeout(INVITE_TIMEOUT, pairing).await;
+    // The invite is single use either way: take its image down.
+    std::fs::remove_file(qr_png).ok();
+    match result {
+        Ok(Ok((session, peer))) => {
             state.peers.retain(|known| known.qid != peer.qid);
             state.peers.push(peer.clone());
-            save(&path, &state)?;
-            println!("paired with {} {}; accept it on Passport", peer.qid, peer.name);
+            save(path, &state)?;
+            println!("paired with {:?}, QID {}", peer.name, grouped_qid(&peer.qid.to_string()));
+            println!("Accept it on Passport if asked, and check Passport lists this computer's QID above.");
             session.close().await;
             Ok(())
         }
-        Command::Probe => probe(&relay).await,
-        Command::Serve { peer, listen } => {
-            let state = load(&path)?;
-            let peer = select_peer(&state.peers, peer.as_deref())?.clone();
-            serve(Rc::new(Link { identity: state.identity, peer, relay, session: RefCell::new(None) }), &listen).await
-        }
+        Ok(Err(error)) => bail!(
+            "pairing failed ({error}). Treat it as possible interference: this invite is void. On Passport, \
+             forget any new peer it added in Settings > Quantum Link, then run `invite` again for a new code."
+        ),
+        Err(_) => bail!(
+            "no pairing within {} minutes; the invite is void. Run `invite` again for a new code.",
+            INVITE_TIMEOUT.as_secs() / 60
+        ),
     }
+}
+
+fn write_qr_png(code: &str, path: &Path) -> Result<()> {
+    let qr = qrcode::QrCode::new(code.as_bytes()).context("encoding the invite as a QR code")?;
+    let image = qr.render::<image::Luma<u8>>().min_dimensions(600, 600).quiet_zone(true).build();
+    image.save(path).with_context(|| format!("writing {}", path.display()))?;
+    Ok(())
+}
+
+/// A QID in the groups of 8 Passport shows it in
+fn grouped_qid(qid: &str) -> String {
+    qid.as_bytes().chunks(8).map(|chunk| String::from_utf8_lossy(chunk).into_owned()).collect::<Vec<_>>().join(" ")
 }
 
 async fn serve(link: Rc<Link>, listen: &str) -> Result<()> {
@@ -195,6 +254,7 @@ struct Link {
     identity: QlIdentity,
     peer: PeerBundle,
     relay: String,
+    allowed_origin: String,
     session: RefCell<Option<Rc<Session>>>,
 }
 
@@ -234,7 +294,12 @@ impl Link {
 }
 
 async fn serve_client(stream: TcpStream, link: &Link) -> Result<()> {
-    let ws = tokio_tungstenite::accept_async(stream).await.context("WebSocket handshake")?;
+    let allowed = link.allowed_origin.as_str();
+    let ws = tokio_tungstenite::accept_hdr_async(stream, |request: &HandshakeRequest, response| {
+        check_origin(request, allowed).map(|()| response)
+    })
+    .await
+    .context("WebSocket handshake")?;
     let (mut sink, mut source) = ws.split();
     while let Some(message) = source.next().await {
         let text = match message? {
@@ -271,6 +336,19 @@ async fn serve_client(stream: TcpStream, link: &Link) -> Result<()> {
     Ok(())
 }
 
+/// Accepts a WebSocket handshake only from the Passwords extension's Origin. Web pages and other
+/// extensions get 403, so they can't drive the bridge from the same browser.
+fn check_origin(request: &HandshakeRequest, allowed: &str) -> Result<(), HandshakeError> {
+    let origin = request.headers().get("origin").and_then(|value| value.to_str().ok());
+    if origin == Some(allowed) {
+        return Ok(());
+    }
+    log::warn!("refused a WebSocket handshake from origin {origin:?}");
+    let mut refusal = HandshakeError::new(Some("origin not allowed".into()));
+    *refusal.status_mut() = tokio_tungstenite::tungstenite::http::StatusCode::FORBIDDEN;
+    Err(refusal)
+}
+
 /// The request's `id`, which a reply the bridge makes up itself has to echo
 fn request_id(json: &str) -> String {
     // A full JSON parser isn't worth a dependency: ids are short decimal strings the extension makes.
@@ -293,13 +371,13 @@ fn select_peer<'a>(peers: &'a [PeerBundle], filter: Option<&str>) -> Result<&'a 
         peers.iter().filter(|peer| filter.is_none_or(|filter| peer.qid.to_string().starts_with(filter)));
     match (matching.next(), matching.next()) {
         (Some(peer), None) => Ok(peer),
-        (None, _) if peers.is_empty() => bail!("no paired Passport: run `pair <code>` first"),
+        (None, _) if peers.is_empty() => bail!("no paired Passport: run `invite` first"),
         (None, _) => bail!("no paired Passport matches --peer"),
         (Some(_), Some(_)) => bail!("several paired Passports: pick one with --peer"),
     }
 }
 
-/// The extension and the SSH tunnel both use loopback; the bridge must not listen anywhere else.
+/// The extension runs on this computer; the bridge must not listen anywhere but loopback.
 fn ensure_loopback(address: &str) -> Result<()> {
     let address: std::net::SocketAddr = address.parse().context("--listen must be an IP address and port")?;
     if !address.ip().is_loopback() {
@@ -324,6 +402,51 @@ mod tests {
     fn error_reply_is_json_the_extension_reads() {
         let reply = error_reply("3", 99, "Passport not connected: \"x\"\n");
         assert_eq!(reply, r#"{"id":"3","error":{"code":99,"message":"Passport not connected: x"}}"#);
+    }
+
+    async fn handshake(origin: Option<&str>) -> bool {
+        use tokio_tungstenite::tungstenite::client::IntoClientRequest;
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.unwrap();
+            tokio_tungstenite::accept_hdr_async(stream, |request: &HandshakeRequest, response| {
+                check_origin(request, DEFAULT_EXTENSION_ORIGIN).map(|()| response)
+            })
+            .await
+            .is_ok()
+        });
+        let mut request = format!("ws://{address}/").into_client_request().unwrap();
+        if let Some(origin) = origin {
+            request.headers_mut().insert("origin", origin.parse().unwrap());
+        }
+        let client = tokio_tungstenite::connect_async(request).await.is_ok();
+        let server = server.await.unwrap();
+        assert_eq!(client, server);
+        client
+    }
+
+    #[tokio::test]
+    async fn accepts_only_the_extension_origin() {
+        assert!(handshake(Some(DEFAULT_EXTENSION_ORIGIN)).await);
+        assert!(!handshake(Some("http://127.0.0.1:8081")).await);
+        assert!(!handshake(Some("chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")).await);
+        assert!(!handshake(Some("null")).await);
+        assert!(!handshake(None).await);
+    }
+
+    #[test]
+    fn writes_a_scannable_size_qr_png() {
+        let path = std::env::temp_dir().join("passwords-ql-bridge-test-qr.png");
+        write_qr_png("not a real invite", &path).unwrap();
+        let image = image::open(&path).unwrap();
+        std::fs::remove_file(&path).ok();
+        assert!(image.width() >= 600 && image.width() == image.height());
+    }
+
+    #[test]
+    fn groups_the_qid_like_passport() {
+        assert_eq!(grouped_qid("0123456789abcdefXY"), "01234567 89abcdef XY");
     }
 
     #[test]
