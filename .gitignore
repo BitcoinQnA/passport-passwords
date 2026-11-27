@@ -14,3 +14,7 @@ ui/gen/
 resources/fonts
 resources/icons
 resources/images
+
+# Standalone crates
+/host-bridge/target/
+/ql-routes/target/

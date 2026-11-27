@@ -1940,6 +1940,8 @@ dependencies = [
  "log",
  "nav-file-browser",
  "oneshot",
+ "ql",
+ "ql-rpc",
  "security",
  "serde",
  "serde_json",
@@ -1956,6 +1958,7 @@ dependencies = [
  "vaults-bridge-import",
  "vaults-bridge-keystore",
  "vaults-bridge-protocol",
+ "vaults-bridge-ql",
  "xous",
  "xous-api-log",
  "zeroize",
@@ -4727,6 +4730,22 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e0c5ccf5294c6ccd63a74f1565028353830a9c2f5eb0c682c355c471726a6e3f"
 
 [[package]]
+name = "ql"
+version = "0.1.0"
+dependencies = [
+ "bytes",
+ "futures-lite",
+ "log",
+ "ql-codec",
+ "ql-common",
+ "ql-keyos",
+ "ql-rpc",
+ "server",
+ "worker",
+ "xous",
+]
+
+[[package]]
 name = "ql-codec"
 version = "0.1.0"
 source = "git+https://github.com/Foundation-Devices/quantum-link.git?rev=f4608ebc4c551a2dffdf57581a9d687512929fa0#f4608ebc4c551a2dffdf57581a9d687512929fa0"
@@ -4743,6 +4762,35 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn",
+]
+
+[[package]]
+name = "ql-common"
+version = "0.1.0"
+source = "git+https://github.com/Foundation-Devices/quantum-link.git?rev=f4608ebc4c551a2dffdf57581a9d687512929fa0#f4608ebc4c551a2dffdf57581a9d687512929fa0"
+dependencies = [
+ "bytes",
+ "ql-codec",
+]
+
+[[package]]
+name = "ql-keyos"
+version = "0.1.0"
+source = "git+https://github.com/Foundation-Devices/quantum-link.git?rev=f4608ebc4c551a2dffdf57581a9d687512929fa0#f4608ebc4c551a2dffdf57581a9d687512929fa0"
+dependencies = [
+ "ql-codec",
+ "ql-rpc",
+]
+
+[[package]]
+name = "ql-rpc"
+version = "0.1.0"
+source = "git+https://github.com/Foundation-Devices/quantum-link.git?rev=f4608ebc4c551a2dffdf57581a9d687512929fa0#f4608ebc4c551a2dffdf57581a9d687512929fa0"
+dependencies = [
+ "bytes",
+ "ql-codec",
+ "ql-common",
+ "trait-variant",
 ]
 
 [[package]]
@@ -6321,6 +6369,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "trait-variant"
+version = "0.1.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b19a4867a870f6edc4c283f2b455804b1879c0baf0e642f26b03ed8ee262d9d3"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
+]
+
+[[package]]
 name = "ttf-parser"
 version = "0.24.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6672,6 +6731,15 @@ dependencies = [
  "serde",
  "serde_json",
  "thiserror 1.0.69",
+]
+
+[[package]]
+name = "vaults-bridge-ql"
+version = "0.1.0"
+dependencies = [
+ "ql-codec",
+ "ql-keyos",
+ "ql-rpc",
 ]
 
 [[package]]

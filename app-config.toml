@@ -67,3 +67,14 @@ navigation-permissions = ["os/files/PickPaths"]
 "os/security" = [
     "GetAppSeed",
 ]
+"os/ql" = [
+    "OpenStream",
+    "SubscribeIncomingStreams",
+    "ReadStream",
+    "WriteStream",
+    "FinishStream",
+    "ResetStream",
+    "WaitForWriterClosed",
+    "SubscribeStatus",
+    "GetStatus",
+]

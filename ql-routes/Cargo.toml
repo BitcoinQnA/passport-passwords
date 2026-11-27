@@ -1,0 +1,17 @@
+# SPDX-FileCopyrightText: 2026 Foundation Devices, Inc. <hello@foundation.xyz>
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+[package]
+name = "vaults-bridge-ql"
+version = "0.1.0"
+edition = "2021"
+description = "The Passwords app's QLv2 route, shared by the KeyOS app and the host bridge"
+license = "GPL-3.0-or-later"
+
+[workspace]
+
+[dependencies]
+# Same quantum-link revision as the KeyOS tree the app builds against, so the types unify.
+ql-codec = { git = "https://github.com/Foundation-Devices/quantum-link.git", rev = "f4608ebc4c551a2dffdf57581a9d687512929fa0", features = ["derive"] }
+ql-keyos = { git = "https://github.com/Foundation-Devices/quantum-link.git", rev = "f4608ebc4c551a2dffdf57581a9d687512929fa0" }
+ql-rpc = { git = "https://github.com/Foundation-Devices/quantum-link.git", rev = "f4608ebc4c551a2dffdf57581a9d687512929fa0" }
