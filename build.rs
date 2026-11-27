@@ -9,11 +9,7 @@ fn main() {
     println!("cargo:rustc-env=FOUNDATION_THEMES_RUST_DIR={themes_rust_dir}");
     println!("cargo:rerun-if-env-changed=FOUNDATION_THEMES_RUST_DIR");
 
-    slint_keyos_platform_build::compile_options(slint_keyos_platform_build::CompileOptions {
-        module_path: "ui/app.slint",
-        include_router: true,
-        include_slint: true,
-        include_translations: false,
-        include_time_localization: false,
-    });
+    slint_keyos_platform_build::CompileOptions::new("ui/app.slint")
+        .with_router()
+        .compile();
 }

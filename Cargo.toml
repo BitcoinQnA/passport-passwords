@@ -24,6 +24,7 @@ slint-keyos-platform = { path = ".foundation-sdk/current/lib/keyos/slint-keyos-p
 foundation-themes = { path = ".foundation-sdk/current/lib/keyos/sdk/crates/foundation-themes" }
 file-backed = { path = ".foundation-sdk/current/lib/keyos/utils/file-backed" }
 fs = { path = ".foundation-sdk/current/lib/keyos/api/fs" }
+nav-file-browser = { path = ".foundation-sdk/current/lib/keyos/api/navigation/file-browser" }
 
 # Cross-target utilities
 async-trait = "0.1"
@@ -31,8 +32,6 @@ anyhow = "1"
 hex = "0.4"
 oneshot = "0.1"
 serde_json = "1"
-# Force transitive random users onto KeyOS' Xous-aware getrandom fork.
-getrandom = "=0.2.10"
 # Keep this aligned with KeyOS' lockfile. simd-adler32 0.3.9 uses ARM NEON
 # intrinsics that are unstable with the current armv7a-unknown-xous-elf toolchain.
 simd-adler32 = "=0.3.7"
@@ -61,7 +60,9 @@ xous = { path = ".foundation-sdk/current/lib/keyos/xous/xous-rs" }
 slint-keyos-platform-build = { path = ".foundation-sdk/current/lib/keyos/slint-keyos-platform/build", default-features = false }
 
 [patch.crates-io]
-getrandom = { path = ".foundation-sdk/current/lib/keyos/imports/getrandom" }
+getrandom-0-2 = { package = "getrandom", path = ".foundation-sdk/current/lib/keyos/imports/getrandom/0.2" }
+getrandom-0-3 = { package = "getrandom", path = ".foundation-sdk/current/lib/keyos/imports/getrandom/0.3" }
+getrandom-0-4 = { package = "getrandom", path = ".foundation-sdk/current/lib/keyos/imports/getrandom/0.4" }
 
 [profile.dev]
 opt-level = 2

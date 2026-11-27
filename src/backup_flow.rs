@@ -166,61 +166,48 @@ pub fn set_success(ui_weak: &Weak<AppWindow>, msg: &str) {
 
 #[cfg(target_os = "xous")]
 fn select_backup_dir() -> Result<Option<(String, slint_keyos_platform::fs::Location)>, String> {
-    use slint_keyos_platform::{
-        gui_server_api::navigation::filepicker::{AllowedLocations, SelectFileOptions},
-        navigation::select_file,
-    };
+    use nav_file_browser::{AllowedLocations, Pick, PickPaths};
+    use slint_keyos_platform::gui_server_api::error::NavigationError;
+    use slint_keyos_platform::navigation::navigate;
 
     use crate::gui_permissions::GuiPermissions;
 
-    let opts = SelectFileOptions::default()
-        .with_hidden_allowed(false)
-        .with_dirs_allowed(true)
-        .with_dir_selection_mode(true)
-        .with_multiple_selection_mode(false)
-        .with_allowed_locations(AllowedLocations::All);
-    let selected = select_file::<GuiPermissions>(opts).map_err(|e| format!("{e:?}"))?;
-    let Some((path, location)) = selected.and_then(|s| s.files().first().cloned()) else {
+    let selected = match navigate::<GuiPermissions, _>(&PickPaths {
+        pick: Pick::Directory,
+        locations: AllowedLocations::All,
+        ..Default::default()
+    }) {
+        Ok(selected) => selected,
+        Err(NavigationError::Canceled) => return Ok(None),
+        Err(e) => return Err(format!("{e:?}")),
+    };
+    let Some((path, location)) = selected.paths.into_iter().next() else {
         return Ok(None);
     };
-    Ok(Some((path, map_location(location))))
+    Ok(Some((path, location.into())))
 }
 
 #[cfg(target_os = "xous")]
 fn select_backup_file() -> Result<Option<(String, slint_keyos_platform::fs::Location)>, String> {
-    use slint_keyos_platform::{
-        gui_server_api::navigation::filepicker::{
-            AllowedExtensions, AllowedLocations, SelectFileOptions,
-        },
-        navigation::select_file,
-    };
+    use nav_file_browser::{AllowedExtensions, AllowedLocations, PickPaths};
+    use slint_keyos_platform::gui_server_api::error::NavigationError;
+    use slint_keyos_platform::navigation::navigate;
 
     use crate::gui_permissions::GuiPermissions;
 
-    let opts = SelectFileOptions::default()
-        .with_hidden_allowed(false)
-        .with_dirs_allowed(true)
-        .with_dir_selection_mode(false)
-        .with_multiple_selection_mode(false)
-        .with_allowed_locations(AllowedLocations::All)
-        .with_allowed_extensions(AllowedExtensions::specific(&["vbpw", "json"]));
-    let selected = select_file::<GuiPermissions>(opts).map_err(|e| format!("{e:?}"))?;
-    let Some((path, location)) = selected.and_then(|s| s.files().first().cloned()) else {
+    let selected = match navigate::<GuiPermissions, _>(&PickPaths {
+        locations: AllowedLocations::All,
+        extensions: AllowedExtensions::specific(["vbpw", "json"]),
+        ..Default::default()
+    }) {
+        Ok(selected) => selected,
+        Err(NavigationError::Canceled) => return Ok(None),
+        Err(e) => return Err(format!("{e:?}")),
+    };
+    let Some((path, location)) = selected.paths.into_iter().next() else {
         return Ok(None);
     };
-    Ok(Some((path, map_location(location))))
-}
-
-#[cfg(target_os = "xous")]
-fn map_location(
-    location: slint_keyos_platform::gui_server_api::navigation::filepicker::Location,
-) -> slint_keyos_platform::fs::Location {
-    use slint_keyos_platform::{fs, gui_server_api::navigation::filepicker::Location};
-    match location {
-        Location::Internal => fs::Location::User,
-        Location::Airlock => fs::Location::Airlock,
-        Location::External => fs::Location::Usb,
-    }
+    Ok(Some((path, location.into())))
 }
 
 #[cfg(target_os = "xous")]

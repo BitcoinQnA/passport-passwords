@@ -52,39 +52,30 @@ pub fn pick_and_parse(_pending: &PendingRecords, ui_weak: &Weak<AppWindow>) {
 
 #[cfg(target_os = "xous")]
 pub fn pick_and_parse(pending: &PendingRecords, ui_weak: &Weak<AppWindow>) {
-    use slint_keyos_platform::{
-        fs,
-        gui_server_api::navigation::filepicker::{
-            AllowedExtensions, AllowedLocations, Location, SelectFileOptions,
-        },
-        navigation::select_file,
-    };
+    use nav_file_browser::{AllowedExtensions, AllowedLocations, PickPaths};
+    use slint_keyos_platform::gui_server_api::error::NavigationError;
+    use slint_keyos_platform::navigation::navigate;
     use vaults_bridge_import::{parse, ImportError};
 
     use crate::gui_permissions::GuiPermissions;
 
-    let opts = SelectFileOptions::default()
-        .with_allowed_extensions(AllowedExtensions::specific(&["csv", "txt"]))
-        .with_allowed_locations(AllowedLocations::All)
-        .with_dirs_allowed(true);
-
-    let result = match select_file::<GuiPermissions>(opts) {
-        Ok(Some(r)) => r,
-        Ok(None) => return, // user cancelled
+    let result = match navigate::<GuiPermissions, _>(&PickPaths {
+        locations: AllowedLocations::All,
+        extensions: AllowedExtensions::specific(["csv", "txt"]),
+        ..Default::default()
+    }) {
+        Ok(r) => r,
+        Err(NavigationError::Canceled) => return,
         Err(e) => {
             log::warn!("import: file picker failed: {e:?}");
             set_error(ui_weak, "File picker failed. Try again.");
             return;
         }
     };
-    let Some((path, location)) = result.files().first().cloned() else {
+    let Some((path, location)) = result.paths.into_iter().next() else {
         return;
     };
-    let fs_location = match location {
-        Location::Internal => fs::Location::User,
-        Location::Airlock => fs::Location::Airlock,
-        Location::External => fs::Location::Usb,
-    };
+    let fs_location = location.into();
 
     let bytes = match read_file_bytes(&path, fs_location) {
         Ok(b) => b,
