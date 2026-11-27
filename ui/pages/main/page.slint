@@ -131,6 +131,21 @@ export component MainPage inherits Rectangle {
 
     // ---- Empty state (no live AND no search query) ----------------------
     if !archive-view && Callbacks.live-count == 0 && Callbacks.search-text == "": ShieldPage {
+        AppHeader {
+            title: "Passwords";
+            side-padding: Size.sz8;
+
+            Rectangle { }
+
+            IconButton {
+                icon: "ellipsis";
+                size: Size.sz10;
+                icon-size: Size.sz8;
+                importance: Importance.normal;
+                clicked => { is-menu-open = !is-menu-open; }
+            }
+        }
+
         ContentSection {
             spacing: Size.sz6;
 
