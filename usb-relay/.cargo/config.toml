@@ -1,0 +1,5 @@
+# SPDX-FileCopyrightText: 2026 Foundation Devices, Inc. <hello@foundation.xyz>
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+[target.x86_64-pc-windows-gnu]
+linker = "x86_64-w64-mingw32-gcc-posix"

@@ -4,5 +4,5 @@
 [toolchain]
 channel = "nightly-2026-04-11"
 components = ["rustfmt", "clippy", "rustc", "rust-src"]
-targets = ["aarch64-unknown-linux-gnu"]
+targets = ["aarch64-unknown-linux-gnu", "x86_64-pc-windows-gnu"]
 profile = "minimal"

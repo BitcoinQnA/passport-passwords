@@ -12,3 +12,7 @@ license = "GPL-3.0-or-later"
 
 [dependencies]
 rusb = "0.9"
+
+# libusb is vendored on Windows so the cross-build does not need a prebuilt Windows libusb.
+[target.'cfg(windows)'.dependencies]
+rusb = { version = "0.9", features = ["vendored"] }

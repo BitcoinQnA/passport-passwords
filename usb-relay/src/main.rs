@@ -5,6 +5,10 @@
 //! SSH). Each record crosses stdio as a 4-byte big-endian length and the record. The records are
 //! QL's encrypted wire records: this process has no QL identity, no session keys and no QL code, so
 //! it can't read or forge what it carries. USB handling follows KeyOS' ql-host `usb.rs`.
+//!
+//! On Windows, KeyOS already advertises this interface as WinUSB (Microsoft OS 2.0, GUID
+//! {167F35F9-05C2-4AC7-96B3-D30C1020627F}), so Windows should bind a driver without a third-party
+//! installer. Stdio is set to binary mode so record framing is not rewritten.
 
 use std::{
     io::{self, Read, Write},
@@ -36,12 +40,36 @@ fn main() {
 }
 
 fn run() -> io::Result<()> {
-    let probe = std::env::args().any(|arg| arg == "--probe");
+    set_stdio_binary();
+    let mut probe = false;
+    let mut list = false;
+    for arg in std::env::args().skip(1) {
+        match arg.as_str() {
+            "--probe" => probe = true,
+            "--list" => list = true,
+            "-h" | "--help" => {
+                eprint_usage();
+                return Ok(());
+            }
+            other => {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    format!("unknown argument: {other}"),
+                ));
+            }
+        }
+    }
+    if list {
+        return list_devices();
+    }
+
     let handle = rusb::open_device_with_vid_pid(PASSPORT.0, PASSPORT.1)
         .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "no Passport Prime on USB"))?;
     let endpoints = find_ql_interface(&handle)?;
     handle.detach_kernel_driver(endpoints.interface).ok();
-    handle.claim_interface(endpoints.interface).map_err(io::Error::other)?;
+    handle
+        .claim_interface(endpoints.interface)
+        .map_err(io::Error::other)?;
     eprintln!(
         "ql-usb-relay: claimed Passport Prime QL interface {} (out {:#04x}, in {:#04x})",
         endpoints.interface, endpoints.out, endpoints.input
@@ -61,7 +89,119 @@ fn run() -> io::Result<()> {
     result
 }
 
-fn stdin_to_usb(handle: &DeviceHandle<GlobalContext>, endpoint: u8, max_packet: usize) -> io::Result<()> {
+fn eprint_usage() {
+    eprintln!(
+        "ql-usb-relay: moves opaque QL records between Passport Prime's QL USB interface and stdio\n\
+         usage: ql-usb-relay [--list | --probe]\n\
+           --list   list USB devices and Prime's QL interface, without claiming it\n\
+           --probe  claim the QL interface and exit"
+    );
+}
+
+fn set_stdio_binary() {
+    #[cfg(windows)]
+    {
+        extern "C" {
+            fn _setmode(fd: i32, mode: i32) -> i32;
+        }
+        const O_BINARY: i32 = 0x8000;
+        unsafe {
+            _setmode(0, O_BINARY);
+            _setmode(1, O_BINARY);
+        }
+    }
+}
+
+fn list_devices() -> io::Result<()> {
+    let devices = rusb::devices().map_err(io::Error::other)?;
+    let mut found_prime = false;
+    let mut found_ql = false;
+    for device in devices.iter() {
+        let desc = device.device_descriptor().map_err(io::Error::other)?;
+        let vid = desc.vendor_id();
+        let pid = desc.product_id();
+        let mut name = String::new();
+        if let Ok(handle) = device.open() {
+            if let Ok(langs) = handle.read_languages(Duration::from_secs(1)) {
+                if let Some(lang) = langs.first() {
+                    if let Ok(product) =
+                        handle.read_product_string(*lang, &desc, Duration::from_secs(1))
+                    {
+                        name = product;
+                    }
+                }
+            }
+        }
+        let is_prime = (vid, pid) == PASSPORT;
+        if is_prime {
+            found_prime = true;
+        }
+        let label = if name.is_empty() {
+            String::new()
+        } else {
+            format!(" {name}")
+        };
+        let mark = if is_prime { "  Passport Prime" } else { "" };
+        eprintln!(
+            "ql-usb-relay: {vid:04x}:{pid:04x}{label}{mark}  bus {} addr {}",
+            device.bus_number(),
+            device.address()
+        );
+        if !is_prime {
+            continue;
+        }
+        for index in 0..desc.num_configurations() {
+            let config = device.config_descriptor(index).map_err(io::Error::other)?;
+            for descriptor in config
+                .interfaces()
+                .flat_map(|interface| interface.descriptors())
+            {
+                let class = (
+                    descriptor.class_code(),
+                    descriptor.sub_class_code(),
+                    descriptor.protocol_code(),
+                );
+                let ql = class == QL_CLASS;
+                if ql {
+                    found_ql = true;
+                }
+                let bulk: Vec<_> = descriptor
+                    .endpoint_descriptors()
+                    .filter(|endpoint| endpoint.transfer_type() == rusb::TransferType::Bulk)
+                    .map(|endpoint| format!("{:#04x}", endpoint.address()))
+                    .collect();
+                eprintln!(
+                    "  interface {}  class {:02x}/{:02x}/{:02x}{}  endpoints {}",
+                    descriptor.interface_number(),
+                    class.0,
+                    class.1,
+                    class.2,
+                    if ql { "  QL" } else { "" },
+                    bulk.join(" ")
+                );
+            }
+        }
+    }
+    if !found_prime {
+        return Err(io::Error::new(
+            io::ErrorKind::NotFound,
+            "no Passport Prime on USB",
+        ));
+    }
+    if !found_ql {
+        return Err(io::Error::new(
+            io::ErrorKind::NotFound,
+            "Passport Prime has no QL interface",
+        ));
+    }
+    Ok(())
+}
+
+fn stdin_to_usb(
+    handle: &DeviceHandle<GlobalContext>,
+    endpoint: u8,
+    max_packet: usize,
+) -> io::Result<()> {
     let mut stdin = io::stdin().lock();
     let mut record = Vec::new();
     loop {
@@ -73,14 +213,21 @@ fn stdin_to_usb(handle: &DeviceHandle<GlobalContext>, endpoint: u8, max_packet: 
         }
         let length = u32::from_be_bytes(length) as usize;
         if length > MAX_FRAMED_RECORD {
-            return Err(io::Error::new(io::ErrorKind::InvalidData, "record too long"));
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "record too long",
+            ));
         }
         record.resize(length, 0);
         stdin.read_exact(&mut record)?;
-        handle.write_bulk(endpoint, &record, WRITE_TIMEOUT).map_err(io::Error::other)?;
+        handle
+            .write_bulk(endpoint, &record, WRITE_TIMEOUT)
+            .map_err(io::Error::other)?;
         // A record filling its last packet needs a zero length one to end the transfer.
         if record.len() % max_packet == 0 {
-            handle.write_bulk(endpoint, &[], WRITE_TIMEOUT).map_err(io::Error::other)?;
+            handle
+                .write_bulk(endpoint, &[], WRITE_TIMEOUT)
+                .map_err(io::Error::other)?;
         }
     }
 }
@@ -109,9 +256,20 @@ fn usb_to_stdout(handle: &DeviceHandle<GlobalContext>, endpoint: u8) {
 }
 
 fn find_ql_interface(handle: &DeviceHandle<GlobalContext>) -> io::Result<Endpoints> {
-    let config = handle.device().active_config_descriptor().map_err(io::Error::other)?;
-    for descriptor in config.interfaces().flat_map(|interface| interface.descriptors()) {
-        if (descriptor.class_code(), descriptor.sub_class_code(), descriptor.protocol_code()) != QL_CLASS {
+    let config = handle
+        .device()
+        .active_config_descriptor()
+        .map_err(io::Error::other)?;
+    for descriptor in config
+        .interfaces()
+        .flat_map(|interface| interface.descriptors())
+    {
+        if (
+            descriptor.class_code(),
+            descriptor.sub_class_code(),
+            descriptor.protocol_code(),
+        ) != QL_CLASS
+        {
             continue;
         }
         let bulk = || {
@@ -130,5 +288,8 @@ fn find_ql_interface(handle: &DeviceHandle<GlobalContext>) -> io::Result<Endpoin
             });
         }
     }
-    Err(io::Error::new(io::ErrorKind::NotFound, "Passport Prime has no QL interface"))
+    Err(io::Error::new(
+        io::ErrorKind::NotFound,
+        "Passport Prime has no QL interface",
+    ))
 }
