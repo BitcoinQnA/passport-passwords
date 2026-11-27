@@ -18,3 +18,4 @@ resources/images
 # Standalone crates
 /host-bridge/target/
 /ql-routes/target/
+/usb-relay/target/

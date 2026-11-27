@@ -4,37 +4,60 @@
 //! Bridges the Passwords browser extension to the Passwords app on Passport Prime.
 //!
 //! The extension already speaks the Vaults Bridge JSON protocol over a loopback WebSocket (its
-//! simulator transport). This process listens on that WebSocket and carries each JSON message to
-//! the Passwords app over QLv2 on USB, using the identity and pairing that the `ql-host` CLI from
-//! the same KeyOS tree stored. It never sees a password in the clear: releases are sealed to the
-//! extension's own session, and it doesn't log message contents.
+//! simulator transport). This process runs next to the browser, listens on that WebSocket and
+//! carries each JSON message to the Passwords app over a QLv2 session it holds itself. Passport's
+//! USB port can be on another computer: `--relay` runs `ql-usb-relay` there (over SSH), which only
+//! moves the session's encrypted records and holds no keys. Releases are also sealed to the
+//! extension's own session, and this process doesn't log message contents.
 
-use std::{cell::RefCell, path::PathBuf, rc::Rc, time::Duration};
+use std::{cell::RefCell, path::{Path, PathBuf}, process::Stdio, rc::Rc, time::Duration};
 
 use anyhow::{bail, Context, Result};
-use clap::Parser;
+use clap::{Parser, Subcommand};
 use futures_util::{SinkExt, StreamExt};
-use ql_codec::Decode;
+use ql_codec::{Decode, Encode};
 use ql_host::{PeerBundle, QlIdentity, Session, StreamOptions, Transport};
 use tokio::net::{TcpListener, TcpStream};
 use tokio_tungstenite::tungstenite::Message;
 use vaults_bridge_ql::{BridgeFrame, RequestBridgeFrame, APP_ID, MAX_FRAME_BYTES};
 
+/// Runs `ql-usb-relay` next to Passport, over the box's SSH connection to Jarvis
+const DEFAULT_RELAY: &str = "ssh -o BatchMode=yes -o ConnectTimeout=30 -o ServerAliveInterval=15 \
+    jarvis@100.80.55.66 /home/jarvis/prime-dev-build/ql-usb-relay";
+
 #[derive(Parser)]
-#[command(about = "Carries the Passwords extension's WebSocket to the Passwords app on Passport Prime over QLv2 USB")]
+#[command(about = "Carries the Passwords extension's WebSocket to the Passwords app on Passport Prime over QLv2, through a USB relay")]
 struct Cli {
-    /// The `ql-host` state file: this computer's identity and the peers it paired with
-    #[arg(long, default_value = "ql-host.state")]
+    /// This computer's QL identity and the Passports it paired with (holds a private key)
+    #[arg(long, global = true, default_value = "ql-host.state")]
     state: PathBuf,
-    /// The paired Passport to use, as its QID or the start of it, when there are several
-    #[arg(long)]
-    peer: Option<String>,
-    /// Loopback address the extension connects to
-    #[arg(long, default_value = "127.0.0.1:9876")]
-    listen: String,
-    /// Only check that a Passport Prime with a QL interface is on USB, then exit
-    #[arg(long)]
-    probe_usb: bool,
+    /// Shell command whose stdio reaches Passport's QL USB interface (`ql-usb-relay`)
+    #[arg(long, global = true, default_value = DEFAULT_RELAY)]
+    relay: String,
+    #[command(subcommand)]
+    command: Command,
+}
+
+#[derive(Subcommand)]
+enum Command {
+    /// Generate this computer's QL identity, which Passport shows as `name`.
+    Init {
+        #[arg(long)]
+        name: String,
+    },
+    /// Pair with the code on Passport's Settings > Quantum Link > Connect new peer page.
+    Pair { code: String },
+    /// Check that the relay reaches Passport's QL USB interface, without a session.
+    Probe,
+    /// Serve the extension.
+    Serve {
+        /// The paired Passport to use, as its QID or the start of it, when there are several
+        #[arg(long)]
+        peer: Option<String>,
+        /// Loopback address the extension connects to
+        #[arg(long, default_value = "127.0.0.1:9876")]
+        listen: String,
+    },
 }
 
 /// What the `ql-host` CLI's state file holds; the same layout as its `State`
@@ -47,25 +70,44 @@ struct State {
 fn main() -> Result<()> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
     let cli = Cli::parse();
-    if cli.probe_usb {
-        drop(Transport::usb().context("opening Passport Prime's QL interface")?);
-        println!("Passport Prime's QL interface is on USB and was claimed");
-        return Ok(());
-    }
     let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build()?;
     tokio::task::LocalSet::new().block_on(&runtime, run(cli))
 }
 
 async fn run(cli: Cli) -> Result<()> {
-    let bytes = std::fs::read(&cli.state).with_context(|| format!("reading {}", cli.state.display()))?;
-    let state = State::decode_bytes(bytes.as_slice())
-        .map_err(|error| anyhow::anyhow!("corrupt {}: {error:?}", cli.state.display()))?;
-    let peer = select_peer(&state.peers, cli.peer.as_deref())?.clone();
-    ensure_loopback(&cli.listen)?;
+    let Cli { state: path, relay, command } = cli;
+    match command {
+        Command::Init { name } => {
+            if path.exists() {
+                bail!("{} exists already", path.display());
+            }
+            let identity = ql_host::generate_identity(&name);
+            println!("generated {} ({name})", identity.qid);
+            save(&path, &State { identity, peers: Vec::new() })
+        }
+        Command::Pair { code } => {
+            let mut state = load(&path)?;
+            let (session, peer) = Session::pair(open_relay(&relay)?, state.identity.clone(), &code).await?;
+            state.peers.retain(|known| known.qid != peer.qid);
+            state.peers.push(peer.clone());
+            save(&path, &state)?;
+            println!("paired with {} {}; accept it on Passport", peer.qid, peer.name);
+            session.close().await;
+            Ok(())
+        }
+        Command::Probe => probe(&relay).await,
+        Command::Serve { peer, listen } => {
+            let state = load(&path)?;
+            let peer = select_peer(&state.peers, peer.as_deref())?.clone();
+            serve(Rc::new(Link { identity: state.identity, peer, relay, session: RefCell::new(None) }), &listen).await
+        }
+    }
+}
 
-    let link = Rc::new(Link { identity: state.identity, peer, session: RefCell::new(None) });
-    let listener = TcpListener::bind(&cli.listen).await.with_context(|| format!("listening on {}", cli.listen))?;
-    log::info!("listening on ws://{} for the Passwords extension; Passport is {}", cli.listen, link.peer.name);
+async fn serve(link: Rc<Link>, listen: &str) -> Result<()> {
+    ensure_loopback(listen)?;
+    let listener = TcpListener::bind(listen).await.with_context(|| format!("listening on {listen}"))?;
+    log::info!("listening on ws://{listen} for the Passwords extension; Passport is {}", link.peer.name);
 
     // Connect up front, so the access prompt shows on Passport before the first fill.
     if let Err(error) = link.session().await {
@@ -85,10 +127,74 @@ async fn run(cli: Cli) -> Result<()> {
     }
 }
 
+/// Starts the relay and returns a transport over its stdio. Its stderr passes through.
+fn open_relay(relay: &str) -> Result<Transport> {
+    let mut child = tokio::process::Command::new("sh")
+        .args(["-c", relay])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::inherit())
+        .kill_on_drop(true)
+        .spawn()
+        .context("starting the USB relay")?;
+    let stdin = child.stdin.take().context("relay stdin")?;
+    let stdout = child.stdout.take().context("relay stdout")?;
+    // The relay exits when its stdin closes, which happens when the session drops the transport.
+    tokio::spawn(async move {
+        match child.wait().await {
+            Ok(status) => log::info!("USB relay exited: {status}"),
+            Err(error) => log::warn!("USB relay: {error}"),
+        }
+    });
+    Ok(Transport::framed(stdout, stdin))
+}
+
+async fn probe(relay: &str) -> Result<()> {
+    let status = tokio::process::Command::new("sh")
+        .args(["-c", &format!("{relay} --probe")])
+        .stdin(Stdio::null())
+        .status()
+        .await
+        .context("starting the USB relay")?;
+    if !status.success() {
+        bail!("the relay didn't reach Passport's QL interface ({status})");
+    }
+    // The same relay, as a transport: open it, check it stays up, and close it.
+    let transport = open_relay(relay)?;
+    tokio::time::sleep(Duration::from_secs(3)).await;
+    drop(transport);
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    println!("the box reaches Passport's QL USB interface through the relay");
+    Ok(())
+}
+
+fn load(path: &Path) -> Result<State> {
+    let bytes = std::fs::read(path).with_context(|| format!("reading {} (run `init` first)", path.display()))?;
+    State::decode_bytes(bytes.as_slice()).map_err(|error| anyhow::anyhow!("corrupt {}: {error:?}", path.display()))
+}
+
+/// Replaces the file at `path` with `state`, readable only by its owner, as it holds a private key.
+fn save(path: &Path, state: &State) -> Result<()> {
+    use std::io::Write;
+    if let Some(parent) = path.parent().filter(|parent| !parent.as_os_str().is_empty()) {
+        std::fs::create_dir_all(parent)?;
+    }
+    let temporary = path.with_extension("new");
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create(true).truncate(true);
+    std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
+    let mut file = options.open(&temporary).with_context(|| format!("writing {}", temporary.display()))?;
+    file.write_all(&state.encode_vec())?;
+    file.sync_all()?;
+    std::fs::rename(&temporary, path).with_context(|| format!("writing {}", path.display()))?;
+    Ok(())
+}
+
 /// The QLv2 session to Passport, opened on demand and replaced after a failure
 struct Link {
     identity: QlIdentity,
     peer: PeerBundle,
+    relay: String,
     session: RefCell<Option<Rc<Session>>>,
 }
 
@@ -97,8 +203,8 @@ impl Link {
         if let Some(session) = self.session.borrow().as_ref() {
             return Ok(session.clone());
         }
-        log::info!("connecting to {} over USB", self.peer.name);
-        let transport = Transport::usb().context("opening Passport Prime's QL interface")?;
+        log::info!("connecting to {} through the USB relay", self.peer.name);
+        let transport = open_relay(&self.relay)?;
         let session = Session::connect(transport, self.identity.clone(), self.peer.clone())
             .await
             .context("connecting to Passport")?;
@@ -187,7 +293,7 @@ fn select_peer<'a>(peers: &'a [PeerBundle], filter: Option<&str>) -> Result<&'a 
         peers.iter().filter(|peer| filter.is_none_or(|filter| peer.qid.to_string().starts_with(filter)));
     match (matching.next(), matching.next()) {
         (Some(peer), None) => Ok(peer),
-        (None, _) if peers.is_empty() => bail!("no paired Passport: pair with `ql-host pair <code>` first"),
+        (None, _) if peers.is_empty() => bail!("no paired Passport: run `pair <code>` first"),
         (None, _) => bail!("no paired Passport matches --peer"),
         (Some(_), Some(_)) => bail!("several paired Passports: pick one with --peer"),
     }

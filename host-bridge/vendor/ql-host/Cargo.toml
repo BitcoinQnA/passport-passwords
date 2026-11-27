@@ -1,0 +1,32 @@
+# SPDX-FileCopyrightText: 2026 Foundation Devices, Inc. <hello@foundation.xyz>
+# SPDX-License-Identifier: MIT OR Apache-2.0
+#
+# Vendored from KeyOS-dev PR 2447 (b18d640) utils/ql-host, library only, with one addition:
+# `Transport::framed` (src/framed.rs), a transport over a length-prefixed byte stream, so the
+# session runs on the box while a relay next to the USB port only moves opaque records.
+
+[package]
+name = "ql-host"
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+
+[dependencies]
+async-channel = "2.5"
+futures-lite = "2.5"
+log = "0.4.14"
+ql-codec = { git = "https://github.com/Foundation-Devices/quantum-link.git", rev = "f4608ebc4c551a2dffdf57581a9d687512929fa0", features = ["derive"] }
+ql-common = { git = "https://github.com/Foundation-Devices/quantum-link.git", rev = "f4608ebc4c551a2dffdf57581a9d687512929fa0" }
+ql-fsm = { git = "https://github.com/Foundation-Devices/quantum-link.git", rev = "f4608ebc4c551a2dffdf57581a9d687512929fa0" }
+ql-keyos = { git = "https://github.com/Foundation-Devices/quantum-link.git", rev = "f4608ebc4c551a2dffdf57581a9d687512929fa0" }
+ql-router = { git = "https://github.com/Foundation-Devices/quantum-link.git", rev = "f4608ebc4c551a2dffdf57581a9d687512929fa0", features = ["tokio"] }
+ql-rpc = { git = "https://github.com/Foundation-Devices/quantum-link.git", rev = "f4608ebc4c551a2dffdf57581a9d687512929fa0" }
+ql-runtime = { git = "https://github.com/Foundation-Devices/quantum-link.git", rev = "f4608ebc4c551a2dffdf57581a9d687512929fa0", features = ["rpc", "log"] }
+ql-wire = { git = "https://github.com/Foundation-Devices/quantum-link.git", rev = "f4608ebc4c551a2dffdf57581a9d687512929fa0", features = ["software-crypto"] }
+ql-invite-code = { path = "../../../.foundation-sdk/current/lib/keyos/api/ql/invite-code" }
+system-rpc = { path = "../../../.foundation-sdk/current/lib/keyos/api/ql/rpc" }
+rusb = "0.9"
+tokio = { version = "1.44", features = ["rt", "time", "io-util"] }
+
+[dev-dependencies]
+tokio = { version = "1.44", features = ["rt", "macros", "io-util", "time"] }

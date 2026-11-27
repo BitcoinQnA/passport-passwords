@@ -1,0 +1,14 @@
+# SPDX-FileCopyrightText: 2026 Foundation Devices, Inc. <hello@foundation.xyz>
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+[package]
+name = "ql-usb-relay"
+version = "0.1.0"
+edition = "2021"
+description = "Moves opaque QL records between Passport Prime's QL USB interface and stdio; holds no keys"
+license = "GPL-3.0-or-later"
+
+[workspace]
+
+[dependencies]
+rusb = "0.9"

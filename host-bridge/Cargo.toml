@@ -5,7 +5,7 @@
 name = "passwords-ql-bridge"
 version = "0.1.0"
 edition = "2021"
-description = "Bridges the Passwords browser extension's WebSocket to the Passwords app on Passport Prime over QLv2 USB"
+description = "Bridges the Passwords browser extension's WebSocket to the Passwords app on Passport Prime over QLv2, through a USB relay"
 license = "GPL-3.0-or-later"
 
 [workspace]
@@ -16,9 +16,9 @@ clap = { version = "4", features = ["derive"] }
 env_logger = "0.11"
 futures-util = { version = "0.3", default-features = false, features = ["std", "sink"] }
 log = "0.4"
-# ql-host from the KeyOS tree the app builds against (KeyOS-dev PR 2447), library only.
-ql-host = { path = "../.foundation-sdk/current/lib/keyos/utils/ql-host", default-features = false }
+# ql-host from KeyOS-dev PR 2447, vendored with a framed (relay) transport; see vendor/ql-host.
+ql-host = { path = "vendor/ql-host" }
 ql-codec = { git = "https://github.com/Foundation-Devices/quantum-link.git", rev = "f4608ebc4c551a2dffdf57581a9d687512929fa0", features = ["derive"] }
-tokio = { version = "1.44", features = ["rt", "net", "time", "macros"] }
+tokio = { version = "1.44", features = ["rt", "net", "time", "macros", "process", "io-util"] }
 tokio-tungstenite = "0.21"
 vaults-bridge-ql = { path = "../ql-routes" }
