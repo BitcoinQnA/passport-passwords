@@ -56,6 +56,23 @@ pub const MAX_HISTORY_NAME_BYTES: usize = 128;
 /// Longest peer QID kept in a history entry, in bytes.
 pub const MAX_HISTORY_QID_BYTES: usize = 64;
 
+/// "Released to" opens showing only the newest release.
+pub const RELEASE_ROWS_FIRST: usize = 1;
+
+/// Each press of the expand arrow reveals this many more.
+pub const RELEASE_ROWS_PER_PRESS: usize = 5;
+
+/// How many of `total` history rows are visible after `presses` presses of the
+/// expand arrow. Never more than `total`.
+pub fn release_rows_shown(total: usize, presses: usize) -> usize {
+    total.min(RELEASE_ROWS_FIRST.saturating_add(presses.saturating_mul(RELEASE_ROWS_PER_PRESS)))
+}
+
+/// Whether the expand arrow is still needed: some rows remain hidden.
+pub fn release_rows_have_more(total: usize, presses: usize) -> bool {
+    release_rows_shown(total, presses) < total
+}
+
 /// Clocks earlier than this (1 Jan 2025) have not been set yet, same floor as
 /// the status bar. A history entry stamped before it has no usable date.
 pub const MIN_PLAUSIBLE_UNIX_SECS: u64 = 1_735_693_200;
@@ -556,5 +573,66 @@ mod tests {
     #[test]
     fn sanitizer_keeps_ordinary_non_ascii_names() {
         assert_eq!(sanitize_display_text("Grok Bot 🤖 — café", 128), "Grok Bot 🤖 — café");
+    }
+
+    #[test]
+    fn no_rows_means_nothing_shown_and_no_arrow() {
+        for presses in [0, 1, 99] {
+            assert_eq!(release_rows_shown(0, presses), 0);
+            assert!(!release_rows_have_more(0, presses));
+        }
+    }
+
+    #[test]
+    fn one_row_is_shown_with_no_arrow() {
+        assert_eq!(release_rows_shown(1, 0), 1);
+        assert!(!release_rows_have_more(1, 0));
+        assert_eq!(release_rows_shown(1, 3), 1);
+    }
+
+    #[test]
+    fn two_rows_start_with_one_and_one_press_shows_both() {
+        assert_eq!(release_rows_shown(2, 0), 1);
+        assert!(release_rows_have_more(2, 0));
+        assert_eq!(release_rows_shown(2, 1), 2);
+        assert!(!release_rows_have_more(2, 1));
+    }
+
+    #[test]
+    fn batch_boundary_six_rows_fit_exactly_in_the_first_press() {
+        // 1 + 5 = 6: the arrow goes away on the press that shows the last row.
+        assert_eq!(release_rows_shown(6, 0), 1);
+        assert!(release_rows_have_more(6, 0));
+        assert_eq!(release_rows_shown(6, 1), 6);
+        assert!(!release_rows_have_more(6, 1));
+        // 7 rows need a second press for the last one.
+        assert_eq!(release_rows_shown(7, 1), 6);
+        assert!(release_rows_have_more(7, 1));
+        assert_eq!(release_rows_shown(7, 2), 7);
+        assert!(!release_rows_have_more(7, 2));
+    }
+
+    #[test]
+    fn a_full_fifty_entry_history_opens_in_steps_of_five_never_all_at_once() {
+        let total = MAX_RELEASE_HISTORY;
+        let mut seen = vec![release_rows_shown(total, 0)];
+        let mut presses = 0;
+        while release_rows_have_more(total, presses) {
+            presses += 1;
+            seen.push(release_rows_shown(total, presses));
+        }
+        assert_eq!(seen, [1, 6, 11, 16, 21, 26, 31, 36, 41, 46, 50]);
+        assert_eq!(presses, 10);
+        // Each press adds at most one batch.
+        assert!(seen.windows(2).all(|w| w[1] - w[0] <= RELEASE_ROWS_PER_PRESS));
+        // And the arrow stays gone however many more presses arrive.
+        assert_eq!(release_rows_shown(total, presses + 7), total);
+        assert!(!release_rows_have_more(total, presses + 7));
+    }
+
+    #[test]
+    fn absurd_press_counts_do_not_overflow() {
+        assert_eq!(release_rows_shown(50, usize::MAX), 50);
+        assert!(!release_rows_have_more(50, usize::MAX));
     }
 }

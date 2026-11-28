@@ -99,4 +99,8 @@ export global Callbacks {
     // Validate fields. Empty string == OK.
     pure callback validate-label(string) -> string;
     pure callback validate-origin(string) -> string;
+
+    // How many "Released to" rows to show: (total rows, expand presses) -> rows.
+    // The rule lives in Rust so it is unit-tested.
+    pure callback release-rows-shown(int, int) -> int;
 }

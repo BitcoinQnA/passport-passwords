@@ -62,52 +62,72 @@ component FieldBlock inherits Rectangle {
 /// two lines each: date over year, app over the device it came through.
 component ReleaseHistoryCard inherits Rectangle {
     in property <[ReleaseRow]> rows;
+    /// How many of `rows` to show, newest first.
+    in property <int> shown: 1;
+    callback more();
 
     background: Palette.background-primary-alternative;
     border-radius: Size.sz3;
 
     VerticalLayout {
         padding: Size.sz4;
-        spacing: Size.sz3;
+        // Spacing is carried by each row so hidden rows leave no gap.
+        spacing: 0px;
 
         HeadingSm {
             text: "Released to";
             color: Palette.content-secondary;
         }
 
-        for row in rows: HorizontalLayout {
-            spacing: Size.sz4;
+        for row[index] in rows: VerticalLayout {
+            if index < root.shown: HorizontalLayout {
+                padding-top: Size.sz3;
+                spacing: Size.sz4;
 
-            VerticalLayout {
-                width: Size.sz16 + Size.sz9;
-                TextSm {
-                    text: row.date;
-                    color: Palette.content-primary;
-                    wrap: no-wrap;
-                    overflow: elide;
+                VerticalLayout {
+                    width: Size.sz16 + Size.sz9;
+                    TextSm {
+                        text: row.date;
+                        color: Palette.content-primary;
+                        wrap: no-wrap;
+                        overflow: elide;
+                    }
+                    TextSm {
+                        text: row.year;
+                        color: Palette.content-tertiary;
+                        wrap: no-wrap;
+                        overflow: elide;
+                    }
                 }
-                TextSm {
-                    text: row.year;
-                    color: Palette.content-tertiary;
-                    wrap: no-wrap;
-                    overflow: elide;
+
+                VerticalLayout {
+                    horizontal-stretch: 1;
+                    TextSm {
+                        text: row.surface;
+                        color: Palette.content-primary;
+                        wrap: no-wrap;
+                        overflow: elide;
+                    }
+                    TextSm {
+                        text: row.peer;
+                        color: Palette.content-tertiary;
+                        wrap: no-wrap;
+                        overflow: elide;
+                    }
                 }
             }
+        }
 
-            VerticalLayout {
-                horizontal-stretch: 1;
-                TextSm {
-                    text: row.surface;
-                    color: Palette.content-primary;
-                    wrap: no-wrap;
-                    overflow: elide;
-                }
-                TextSm {
-                    text: row.peer;
-                    color: Palette.content-tertiary;
-                    wrap: no-wrap;
-                    overflow: elide;
-                }
+        // Only while rows remain hidden: one press reveals the next batch.
+        if root.shown < rows.length: HorizontalLayout {
+            alignment: center;
+            padding-top: Size.sz2;
+            IconButton {
+                icon: "chevron-down";
+                size: Size.sz10;
+                icon-size: Size.sz8;
+                importance: Importance.normal;
+                clicked => { root.more(); }
             }
         }
     }
@@ -117,8 +137,11 @@ export component DetailsPage inherits Rectangle {
     property <bool> show-reveal-confirm: false;
     property <bool> password-revealed: false;
     property <string> password-value: "";
+    /// Times the "Released to" arrow has been pressed on this visit.
+    property <int> release-presses: 0;
 
     init => {
+        release-presses = 0;
         password-revealed = false;
         password-value = "";
     }
@@ -179,10 +202,6 @@ export component DetailsPage inherits Rectangle {
                             }
                         }
 
-                        if Callbacks.editing-release-history.length > 0: ReleaseHistoryCard {
-                            rows: Callbacks.editing-release-history;
-                        }
-
                         CardColorPicker {
                             selected-index: Callbacks.editing-color;
                             title: "Color";
@@ -190,6 +209,12 @@ export component DetailsPage inherits Rectangle {
                                 Callbacks.editing-color = index;
                                 Callbacks.change-color(Callbacks.editing-uuid, index);
                             }
+                        }
+
+                        if Callbacks.editing-release-history.length > 0: ReleaseHistoryCard {
+                            rows: Callbacks.editing-release-history;
+                            shown: Callbacks.release-rows-shown(Callbacks.editing-release-history.length, release-presses);
+                            more => { release-presses += 1; }
                         }
                     }
                 }

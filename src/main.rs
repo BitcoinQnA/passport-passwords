@@ -152,6 +152,14 @@ fn app_main(_cx: AppContext, ui: AppWindow) {
             Err(e) => format!("{e}").into(),
         });
     ui.global::<Callbacks>()
+        .on_release_rows_shown(|total: i32, presses: i32| {
+            let shown = vaults_bridge_core::release_rows_shown(
+                total.max(0) as usize,
+                presses.max(0) as usize,
+            );
+            i32::try_from(shown).unwrap_or(i32::MAX)
+        });
+    ui.global::<Callbacks>()
         .on_validate_label(|s: SharedString| {
             if s.as_str().len() > MAX_LABEL_BYTES {
                 "Label too long".into()
