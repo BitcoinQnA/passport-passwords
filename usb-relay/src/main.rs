@@ -1,10 +1,15 @@
 // SPDX-FileCopyrightText: 2026 Foundation Devices, Inc. <hello@foundation.xyz>
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-//! Relays Passport Prime's QL USB interface to stdio, for a QL session that runs elsewhere (over
-//! SSH). Each record crosses stdio as a 4-byte big-endian length and the record. The records are
-//! QL's encrypted wire records: this process has no QL identity, no session keys and no QL code, so
-//! it can't read or forge what it carries. USB handling follows KeyOS' ql-host `usb.rs`.
+//! Relays Passport Prime's QL USB interface to a QL session that runs elsewhere. Each record
+//! crosses the link as a 4-byte big-endian length and the record. The records are QL's encrypted
+//! wire records: this process has no QL identity, no session keys and no QL code, so it can't read
+//! or forge what it carries. USB handling follows KeyOS' ql-host `usb.rs`.
+//!
+//! The session end can be this process's stdio (for example when reached over SSH) or an outbound
+//! TCP connection (`--connect host:port`). The laptop always dials out; it never listens. When the
+//! box is not reachable on the tailnet, both sides dial Jarvis and `ql-byte-splice.py` joins the
+//! two connections. Jarvis forwards opaque bytes only.
 //!
 //! On Windows, KeyOS already advertises this interface as WinUSB (Microsoft OS 2.0, GUID
 //! {167F35F9-05C2-4AC7-96B3-D30C1020627F}), so Windows should bind a driver without a third-party
@@ -12,6 +17,7 @@
 
 use std::{
     io::{self, Read, Write},
+    net::TcpStream,
     sync::Arc,
     time::Duration,
 };
@@ -24,6 +30,8 @@ const MAX_RECORD_LEN: usize = 8 * 1024;
 const MAX_FRAMED_RECORD: usize = 64 * 1024;
 const WRITE_TIMEOUT: Duration = Duration::from_secs(2);
 const READ_TIMEOUT: Duration = Duration::from_millis(500);
+const DIAL_TIMEOUT: Duration = Duration::from_secs(30);
+const DIAL_TEST: &[u8] = b"ql-usb-relay-dial-test";
 
 struct Endpoints {
     interface: u8,
@@ -43,10 +51,19 @@ fn run() -> io::Result<()> {
     set_stdio_binary();
     let mut probe = false;
     let mut list = false;
-    for arg in std::env::args().skip(1) {
+    let mut dial_only = false;
+    let mut connect = None;
+    let mut args = std::env::args().skip(1);
+    while let Some(arg) = args.next() {
         match arg.as_str() {
             "--probe" => probe = true,
             "--list" => list = true,
+            "--dial-only" => dial_only = true,
+            "--connect" => {
+                connect = Some(args.next().ok_or_else(|| {
+                    io::Error::new(io::ErrorKind::InvalidInput, "--connect needs host:port")
+                })?);
+            }
             "-h" | "--help" => {
                 eprint_usage();
                 return Ok(());
@@ -61,6 +78,15 @@ fn run() -> io::Result<()> {
     }
     if list {
         return list_devices();
+    }
+    if dial_only {
+        let address = connect.ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "--dial-only needs --connect host:port",
+            )
+        })?;
+        return dial_test(&address);
     }
 
     let handle = rusb::open_device_with_vid_pid(PASSPORT.0, PASSPORT.1)
@@ -79,22 +105,42 @@ fn run() -> io::Result<()> {
     }
     let handle = Arc::new(handle);
 
+    if let Some(address) = connect {
+        let stream = dial(&address)?;
+        let incoming = stream.try_clone()?;
+        let outgoing = stream;
+        let reader = {
+            let handle = handle.clone();
+            std::thread::spawn(move || usb_to_writer(&handle, endpoints.input, outgoing))
+        };
+        let result = reader_to_usb(&handle, endpoints.out, endpoints.max_packet_out, incoming);
+        drop(reader);
+        return result;
+    }
+
     let reader = {
         let handle = handle.clone();
-        std::thread::spawn(move || usb_to_stdout(&handle, endpoints.input))
+        std::thread::spawn(move || usb_to_writer(&handle, endpoints.input, io::stdout().lock()))
     };
     // stdin closing (the session ended or SSH dropped) ends the relay.
-    let result = stdin_to_usb(&handle, endpoints.out, endpoints.max_packet_out);
+    let result = reader_to_usb(
+        &handle,
+        endpoints.out,
+        endpoints.max_packet_out,
+        io::stdin().lock(),
+    );
     drop(reader);
     result
 }
 
 fn eprint_usage() {
     eprintln!(
-        "ql-usb-relay: moves opaque QL records between Passport Prime's QL USB interface and stdio\n\
-         usage: ql-usb-relay [--list | --probe]\n\
-           --list   list USB devices and Prime's QL interface, without claiming it\n\
-           --probe  claim the QL interface and exit"
+        "ql-usb-relay: moves opaque QL records between Passport Prime's QL USB interface and a session\n\
+         usage: ql-usb-relay [--list | --probe | --dial-only --connect host:port | --connect host:port]\n\
+           --list                   list USB devices and Prime's QL interface, without claiming it\n\
+           --probe                  claim the QL interface and exit\n\
+           --connect host:port      dial out and carry records over that connection (does not listen)\n\
+           --dial-only --connect    check the outbound path only: no USB, no Prime prompt"
     );
 }
 
@@ -110,6 +156,42 @@ fn set_stdio_binary() {
             _setmode(1, O_BINARY);
         }
     }
+}
+
+fn dial(address: &str) -> io::Result<TcpStream> {
+    let stream =
+        TcpStream::connect_timeout(&address.parse().map_err(io::Error::other)?, DIAL_TIMEOUT)?;
+    stream.set_nodelay(true)?;
+    eprintln!("ql-usb-relay: connected to {address}");
+    Ok(stream)
+}
+
+/// Sends one framed test record and expects the same bytes back. Does not open USB.
+fn dial_test(address: &str) -> io::Result<()> {
+    let mut stream = dial(address)?;
+    stream.set_read_timeout(Some(DIAL_TIMEOUT))?;
+    stream.write_all(&(DIAL_TEST.len() as u32).to_be_bytes())?;
+    stream.write_all(DIAL_TEST)?;
+    stream.flush()?;
+    let mut length = [0; 4];
+    stream.read_exact(&mut length)?;
+    let length = u32::from_be_bytes(length) as usize;
+    if length != DIAL_TEST.len() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("dial-test reply was {length} bytes"),
+        ));
+    }
+    let mut record = vec![0; length];
+    stream.read_exact(&mut record)?;
+    if record != DIAL_TEST {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "dial-test reply did not match",
+        ));
+    }
+    eprintln!("ql-usb-relay: dial-test ok, the outbound path to the box is open");
+    Ok(())
 }
 
 fn list_devices() -> io::Result<()> {
@@ -197,16 +279,16 @@ fn list_devices() -> io::Result<()> {
     Ok(())
 }
 
-fn stdin_to_usb(
+fn reader_to_usb(
     handle: &DeviceHandle<GlobalContext>,
     endpoint: u8,
     max_packet: usize,
+    mut reader: impl Read,
 ) -> io::Result<()> {
-    let mut stdin = io::stdin().lock();
     let mut record = Vec::new();
     loop {
         let mut length = [0; 4];
-        match stdin.read_exact(&mut length) {
+        match reader.read_exact(&mut length) {
             Ok(()) => {}
             Err(error) if error.kind() == io::ErrorKind::UnexpectedEof => return Ok(()),
             Err(error) => return Err(error),
@@ -219,7 +301,7 @@ fn stdin_to_usb(
             ));
         }
         record.resize(length, 0);
-        stdin.read_exact(&mut record)?;
+        reader.read_exact(&mut record)?;
         handle
             .write_bulk(endpoint, &record, WRITE_TIMEOUT)
             .map_err(io::Error::other)?;
@@ -232,17 +314,16 @@ fn stdin_to_usb(
     }
 }
 
-fn usb_to_stdout(handle: &DeviceHandle<GlobalContext>, endpoint: u8) {
-    let mut stdout = io::stdout().lock();
+fn usb_to_writer(handle: &DeviceHandle<GlobalContext>, endpoint: u8, mut writer: impl Write) {
     let mut buffer = vec![0; MAX_RECORD_LEN];
     loop {
         match handle.read_bulk(endpoint, &mut buffer, READ_TIMEOUT) {
             Ok(0) | Err(rusb::Error::Timeout) => {}
             Ok(length) => {
-                let written = stdout
+                let written = writer
                     .write_all(&(length as u32).to_be_bytes())
-                    .and_then(|()| stdout.write_all(&buffer[..length]))
-                    .and_then(|()| stdout.flush());
+                    .and_then(|()| writer.write_all(&buffer[..length]))
+                    .and_then(|()| writer.flush());
                 if written.is_err() {
                     std::process::exit(0);
                 }

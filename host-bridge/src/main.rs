@@ -6,17 +6,26 @@
 //! The extension already speaks the Vaults Bridge JSON protocol over a loopback WebSocket (its
 //! simulator transport). This process runs next to the browser, listens on that WebSocket and
 //! carries each JSON message to the Passwords app over a QLv2 session it holds itself. Passport's
-//! USB port can be on another computer: `--relay` runs `ql-usb-relay` there (over SSH), which only
-//! moves the session's encrypted records and holds no keys. Releases are also sealed to the
-//! extension's own session, and this process doesn't log message contents.
+//! USB port can be on another computer. `--relay` runs `ql-usb-relay` there (over SSH), or
+//! `--connect host:port` dials a rendezvous that the USB relay also dials (both sides outbound;
+//! a keyless splice on Jarvis joins them when the box is not reachable on the tailnet). The
+//! process on the USB computer holds no keys and only moves encrypted records. Releases are also
+//! sealed to the extension's own session, and this process doesn't log message contents.
 
-use std::{cell::RefCell, path::{Path, PathBuf}, process::Stdio, rc::Rc, time::Duration};
+use std::{
+    cell::RefCell,
+    path::{Path, PathBuf},
+    process::Stdio,
+    rc::Rc,
+    time::Duration,
+};
 
 use anyhow::{bail, Context, Result};
 use clap::{Parser, Subcommand};
 use futures_util::{SinkExt, StreamExt};
 use ql_codec::{Decode, Encode};
 use ql_host::{PeerBundle, QlIdentity, Session, StreamOptions, Transport};
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 use tokio_tungstenite::tungstenite::{
     handshake::server::{ErrorResponse as HandshakeError, Request as HandshakeRequest},
@@ -36,7 +45,9 @@ const DEFAULT_EXTENSION_ORIGIN: &str = "chrome-extension://hmhfapggphalabfmcdkko
 const INVITE_TIMEOUT: Duration = Duration::from_secs(10 * 60);
 
 #[derive(Parser)]
-#[command(about = "Carries the Passwords extension's WebSocket to the Passwords app on Passport Prime over QLv2, through a USB relay")]
+#[command(
+    about = "Carries the Passwords extension's WebSocket to the Passwords app on Passport Prime over QLv2, through a USB relay"
+)]
 struct Cli {
     /// This computer's QL identity and the Passports it paired with (holds a private key)
     #[arg(long, global = true, default_value = "ql-host.state")]
@@ -44,6 +55,10 @@ struct Cli {
     /// Shell command whose stdio reaches Passport's QL USB interface (`ql-usb-relay`)
     #[arg(long, global = true, default_value = DEFAULT_RELAY)]
     relay: String,
+    /// Outbound `host:port` to a rendezvous (for example Jarvis running ql-byte-splice.py) that
+    /// the USB relay also dials. When set, this is used instead of spawning `--relay`.
+    #[arg(long, global = true)]
+    connect: Option<String>,
     #[command(subcommand)]
     command: Command,
 }
@@ -64,6 +79,8 @@ enum Command {
     },
     /// Check that the relay reaches Passport's QL USB interface, without a session.
     Probe,
+    /// Check the outbound rendezvous path only: no USB, no Passport prompt.
+    DialTest,
     /// Serve the extension.
     Serve {
         /// The paired Passport to use, as its QID or the start of it, when there are several
@@ -89,30 +106,57 @@ struct State {
 fn main() -> Result<()> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
     let cli = Cli::parse();
-    let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build()?;
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()?;
     tokio::task::LocalSet::new().block_on(&runtime, run(cli))
 }
 
 async fn run(cli: Cli) -> Result<()> {
-    let Cli { state: path, relay, command } = cli;
+    let Cli {
+        state: path,
+        relay,
+        connect,
+        command,
+    } = cli;
     match command {
         Command::Init { name } => {
             if path.exists() {
                 bail!("{} exists already", path.display());
             }
             let identity = ql_host::generate_identity(&name);
-            save(&path, &State { identity: identity.clone(), peers: Vec::new() })?;
+            save(
+                &path,
+                &State {
+                    identity: identity.clone(),
+                    peers: Vec::new(),
+                },
+            )?;
             println!("generated the identity {name:?}");
             println!("QID {}", grouped_qid(&identity.qid.to_string()));
-            println!("Passport shows this QID on the new peer's page once paired: check it matches.");
+            println!(
+                "Passport shows this QID on the new peer's page once paired: check it matches."
+            );
             Ok(())
         }
-        Command::Invite { qr_png } => invite(&path, &relay, &qr_png).await,
-        Command::Probe => probe(&relay).await,
-        Command::Serve { peer, listen, allowed_origin } => {
+        Command::Invite { qr_png } => invite(&path, &relay, connect.as_deref(), &qr_png).await,
+        Command::Probe => probe(&relay, connect.as_deref()).await,
+        Command::DialTest => dial_test(&relay, connect.as_deref()).await,
+        Command::Serve {
+            peer,
+            listen,
+            allowed_origin,
+        } => {
             let state = load(&path)?;
             let peer = select_peer(&state.peers, peer.as_deref())?.clone();
-            let link = Link { identity: state.identity, peer, relay, allowed_origin, session: RefCell::new(None) };
+            let link = Link {
+                identity: state.identity,
+                peer,
+                relay,
+                connect,
+                allowed_origin,
+                session: RefCell::new(None),
+            };
             serve(Rc::new(link), &listen).await
         }
     }
@@ -120,13 +164,22 @@ async fn run(cli: Cli) -> Result<()> {
 
 /// Shows an invite as a QR image and pairs once Passport scanned it. Any failure ends this
 /// invite for good: it may mean someone else raced for it, so the user starts over with a new one.
-async fn invite(path: &Path, relay: &str, qr_png: &Path) -> Result<()> {
+async fn invite(path: &Path, relay: &str, connect: Option<&str>, qr_png: &Path) -> Result<()> {
     let mut state = load(path)?;
-    let (code, pairing) = Session::invite(open_relay(relay)?, state.identity.clone());
+    let (code, pairing) = Session::invite(
+        open_transport(relay, connect).await?,
+        state.identity.clone(),
+    );
     write_qr_png(&code, qr_png)?;
     println!("Pairing QR written to {}", qr_png.display());
-    println!("On Passport: Settings > Quantum Link > Connect new peer > Scan a code, then scan it.");
-    println!("This computer is {:?}, QID {}", state.identity.name, grouped_qid(&state.identity.qid.to_string()));
+    println!(
+        "On Passport: Settings > Quantum Link > Connect new peer > Scan a code, then scan it."
+    );
+    println!(
+        "This computer is {:?}, QID {}",
+        state.identity.name,
+        grouped_qid(&state.identity.qid.to_string())
+    );
     let result = tokio::time::timeout(INVITE_TIMEOUT, pairing).await;
     // The invite is single use either way: take its image down.
     std::fs::remove_file(qr_png).ok();
@@ -153,20 +206,35 @@ async fn invite(path: &Path, relay: &str, qr_png: &Path) -> Result<()> {
 
 fn write_qr_png(code: &str, path: &Path) -> Result<()> {
     let qr = qrcode::QrCode::new(code.as_bytes()).context("encoding the invite as a QR code")?;
-    let image = qr.render::<image::Luma<u8>>().min_dimensions(600, 600).quiet_zone(true).build();
-    image.save(path).with_context(|| format!("writing {}", path.display()))?;
+    let image = qr
+        .render::<image::Luma<u8>>()
+        .min_dimensions(600, 600)
+        .quiet_zone(true)
+        .build();
+    image
+        .save(path)
+        .with_context(|| format!("writing {}", path.display()))?;
     Ok(())
 }
 
 /// A QID in the groups of 8 Passport shows it in
 fn grouped_qid(qid: &str) -> String {
-    qid.as_bytes().chunks(8).map(|chunk| String::from_utf8_lossy(chunk).into_owned()).collect::<Vec<_>>().join(" ")
+    qid.as_bytes()
+        .chunks(8)
+        .map(|chunk| String::from_utf8_lossy(chunk).into_owned())
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 async fn serve(link: Rc<Link>, listen: &str) -> Result<()> {
     ensure_loopback(listen)?;
-    let listener = TcpListener::bind(listen).await.with_context(|| format!("listening on {listen}"))?;
-    log::info!("listening on ws://{listen} for the Passwords extension; Passport is {}", link.peer.name);
+    let listener = TcpListener::bind(listen)
+        .await
+        .with_context(|| format!("listening on {listen}"))?;
+    log::info!(
+        "listening on ws://{listen} for the Passwords extension; Passport is {}",
+        link.peer.name
+    );
 
     // Connect up front, so the access prompt shows on Passport before the first fill.
     if let Err(error) = link.session().await {
@@ -187,6 +255,19 @@ async fn serve(link: Rc<Link>, listen: &str) -> Result<()> {
 }
 
 /// Starts the relay and returns a transport over its stdio. Its stderr passes through.
+async fn open_transport(relay: &str, connect: Option<&str>) -> Result<Transport> {
+    if let Some(address) = connect {
+        let stream = tokio::net::TcpStream::connect(address)
+            .await
+            .with_context(|| format!("dialing the USB relay rendezvous at {address}"))?;
+        stream.set_nodelay(true)?;
+        log::info!("connected to the USB relay rendezvous at {address}");
+        let (reader, writer) = stream.into_split();
+        return Ok(Transport::framed(reader, writer));
+    }
+    open_relay(relay)
+}
+
 fn open_relay(relay: &str) -> Result<Transport> {
     let mut child = tokio::process::Command::new("sh")
         .args(["-c", relay])
@@ -208,7 +289,10 @@ fn open_relay(relay: &str) -> Result<Transport> {
     Ok(Transport::framed(stdout, stdin))
 }
 
-async fn probe(relay: &str) -> Result<()> {
+async fn probe(relay: &str, connect: Option<&str>) -> Result<()> {
+    if connect.is_some() {
+        bail!("probe over --connect would claim the Prime's USB interface; use dial-test for a path check");
+    }
     let status = tokio::process::Command::new("sh")
         .args(["-c", &format!("{relay} --probe")])
         .stdin(Stdio::null())
@@ -219,7 +303,7 @@ async fn probe(relay: &str) -> Result<()> {
         bail!("the relay didn't reach Passport's QL interface ({status})");
     }
     // The same relay, as a transport: open it, check it stays up, and close it.
-    let transport = open_relay(relay)?;
+    let transport = open_transport(relay, None).await?;
     tokio::time::sleep(Duration::from_secs(3)).await;
     drop(transport);
     tokio::time::sleep(Duration::from_millis(500)).await;
@@ -227,22 +311,80 @@ async fn probe(relay: &str) -> Result<()> {
     Ok(())
 }
 
+/// Echoes one framed record from the USB relay over the rendezvous, without a QL session.
+async fn dial_test(relay: &str, connect: Option<&str>) -> Result<()> {
+    if let Some(address) = connect {
+        let stream = tokio::net::TcpStream::connect(address)
+            .await
+            .with_context(|| format!("dialing the USB relay rendezvous at {address}"))?;
+        stream.set_nodelay(true)?;
+        let (reader, writer) = stream.into_split();
+        echo_dial_test(reader, writer).await?;
+        println!("dial-test ok: echoed a record through the rendezvous at {address}");
+        return Ok(());
+    }
+    let mut child = tokio::process::Command::new("sh")
+        .args(["-c", relay])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::inherit())
+        .kill_on_drop(true)
+        .spawn()
+        .context("starting the rendezvous relay")?;
+    let writer = child.stdin.take().context("relay stdin")?;
+    let reader = child.stdout.take().context("relay stdout")?;
+    echo_dial_test(reader, writer).await?;
+    println!("dial-test ok: echoed a record through --relay");
+    Ok(())
+}
+
+async fn echo_dial_test(
+    mut reader: impl AsyncReadExt + Unpin,
+    mut writer: impl AsyncWriteExt + Unpin,
+) -> Result<()> {
+    let mut length = [0; 4];
+    tokio::time::timeout(Duration::from_secs(30), reader.read_exact(&mut length))
+        .await
+        .context("waiting for the USB relay's dial-test record")?
+        .context("the rendezvous closed before the dial-test record")?;
+    let n = u32::from_be_bytes(length) as usize;
+    if n == 0 || n > 64 * 1024 {
+        bail!("dial-test record length {n} is not valid");
+    }
+    let mut record = vec![0; n];
+    reader
+        .read_exact(&mut record)
+        .await
+        .context("reading the dial-test record")?;
+    writer.write_all(&length).await?;
+    writer.write_all(&record).await?;
+    writer.flush().await?;
+    Ok(())
+}
+
 fn load(path: &Path) -> Result<State> {
-    let bytes = std::fs::read(path).with_context(|| format!("reading {} (run `init` first)", path.display()))?;
-    State::decode_bytes(bytes.as_slice()).map_err(|error| anyhow::anyhow!("corrupt {}: {error:?}", path.display()))
+    let bytes = std::fs::read(path)
+        .with_context(|| format!("reading {} (run `init` first)", path.display()))?;
+    State::decode_bytes(bytes.as_slice())
+        .map_err(|error| anyhow::anyhow!("corrupt {}: {error:?}", path.display()))
 }
 
 /// Replaces the file at `path` with `state`, readable only by its owner, as it holds a private key.
 fn save(path: &Path, state: &State) -> Result<()> {
     use std::io::Write;
-    if let Some(parent) = path.parent().filter(|parent| !parent.as_os_str().is_empty()) {
+    if let Some(parent) = path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+    {
         std::fs::create_dir_all(parent)?;
     }
     let temporary = path.with_extension("new");
     let mut options = std::fs::OpenOptions::new();
     options.write(true).create(true).truncate(true);
     std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
-    let mut file = options.open(&temporary).with_context(|| format!("writing {}", temporary.display()))?;
+    let mut file = options
+        .open(&temporary)
+        .with_context(|| format!("writing {}", temporary.display()))?;
     file.write_all(&state.encode_vec())?;
     file.sync_all()?;
     std::fs::rename(&temporary, path).with_context(|| format!("writing {}", path.display()))?;
@@ -254,6 +396,7 @@ struct Link {
     identity: QlIdentity,
     peer: PeerBundle,
     relay: String,
+    connect: Option<String>,
     allowed_origin: String,
     session: RefCell<Option<Rc<Session>>>,
 }
@@ -264,25 +407,35 @@ impl Link {
             return Ok(session.clone());
         }
         log::info!("connecting to {} through the USB relay", self.peer.name);
-        let transport = open_relay(&self.relay)?;
+        let transport = open_transport(&self.relay, self.connect.as_deref()).await?;
         let session = Session::connect(transport, self.identity.clone(), self.peer.clone())
             .await
             .context("connecting to Passport")?;
         // Passport asks its user the first time; it answers once they decided.
-        log::info!("asking Passport for access to the Passwords app (approve it on Passport if asked)");
-        session.request_access(&[APP_ID]).await.context("asking for access to the Passwords app")?;
+        log::info!(
+            "asking Passport for access to the Passwords app (approve it on Passport if asked)"
+        );
+        session
+            .request_access(&[APP_ID])
+            .await
+            .context("asking for access to the Passwords app")?;
         log::info!("connected, with access to the Passwords app");
         let session = Rc::new(session);
         *self.session.borrow_mut() = Some(session.clone());
         Ok(session)
     }
 
-    fn drop_session(&self) { self.session.borrow_mut().take(); }
+    fn drop_session(&self) {
+        self.session.borrow_mut().take();
+    }
 
     /// Carries one JSON request to the Passwords app, and returns its JSON response.
     async fn call(&self, json: String) -> Result<String> {
         let session = self.session().await?;
-        let result = session.rpc().request::<RequestBridgeFrame>(&BridgeFrame { json }, StreamOptions::default()).await;
+        let result = session
+            .rpc()
+            .request::<RequestBridgeFrame>(&BridgeFrame { json }, StreamOptions::default())
+            .await;
         match result {
             Ok(response) => Ok(response.json),
             Err(error) => {
@@ -339,7 +492,10 @@ async fn serve_client(stream: TcpStream, link: &Link) -> Result<()> {
 /// Accepts a WebSocket handshake only from the Passwords extension's Origin. Web pages and other
 /// extensions get 403, so they can't drive the bridge from the same browser.
 fn check_origin(request: &HandshakeRequest, allowed: &str) -> Result<(), HandshakeError> {
-    let origin = request.headers().get("origin").and_then(|value| value.to_str().ok());
+    let origin = request
+        .headers()
+        .get("origin")
+        .and_then(|value| value.to_str().ok());
     if origin == Some(allowed) {
         return Ok(());
     }
@@ -356,19 +512,29 @@ fn request_id(json: &str) -> String {
         .and_then(|(_, rest)| rest.split_once('"'))
         .and_then(|(_, rest)| rest.split_once('"'))
         .map(|(id, _)| id)
-        .filter(|id| id.len() <= 32 && id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_'))
+        .filter(|id| {
+            id.len() <= 32
+                && id
+                    .chars()
+                    .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+        })
         .unwrap_or("0")
         .to_string()
 }
 
 fn error_reply(id: &str, code: i32, message: &str) -> String {
-    let message: String = message.chars().filter(|c| *c != '"' && *c != '\\' && !c.is_control()).take(200).collect();
+    let message: String = message
+        .chars()
+        .filter(|c| *c != '"' && *c != '\\' && !c.is_control())
+        .take(200)
+        .collect();
     format!("{{\"id\":\"{id}\",\"error\":{{\"code\":{code},\"message\":\"{message}\"}}}}")
 }
 
 fn select_peer<'a>(peers: &'a [PeerBundle], filter: Option<&str>) -> Result<&'a PeerBundle> {
-    let mut matching =
-        peers.iter().filter(|peer| filter.is_none_or(|filter| peer.qid.to_string().starts_with(filter)));
+    let mut matching = peers
+        .iter()
+        .filter(|peer| filter.is_none_or(|filter| peer.qid.to_string().starts_with(filter)));
     match (matching.next(), matching.next()) {
         (Some(peer), None) => Ok(peer),
         (None, _) if peers.is_empty() => bail!("no paired Passport: run `invite` first"),
@@ -379,7 +545,9 @@ fn select_peer<'a>(peers: &'a [PeerBundle], filter: Option<&str>) -> Result<&'a 
 
 /// The extension runs on this computer; the bridge must not listen anywhere but loopback.
 fn ensure_loopback(address: &str) -> Result<()> {
-    let address: std::net::SocketAddr = address.parse().context("--listen must be an IP address and port")?;
+    let address: std::net::SocketAddr = address
+        .parse()
+        .context("--listen must be an IP address and port")?;
     if !address.ip().is_loopback() {
         bail!("--listen must be a loopback address");
     }
@@ -401,7 +569,10 @@ mod tests {
     #[test]
     fn error_reply_is_json_the_extension_reads() {
         let reply = error_reply("3", 99, "Passport not connected: \"x\"\n");
-        assert_eq!(reply, r#"{"id":"3","error":{"code":99,"message":"Passport not connected: x"}}"#);
+        assert_eq!(
+            reply,
+            r#"{"id":"3","error":{"code":99,"message":"Passport not connected: x"}}"#
+        );
     }
 
     async fn handshake(origin: Option<&str>) -> bool {
@@ -418,7 +589,9 @@ mod tests {
         });
         let mut request = format!("ws://{address}/").into_client_request().unwrap();
         if let Some(origin) = origin {
-            request.headers_mut().insert("origin", origin.parse().unwrap());
+            request
+                .headers_mut()
+                .insert("origin", origin.parse().unwrap());
         }
         let client = tokio_tungstenite::connect_async(request).await.is_ok();
         let server = server.await.unwrap();
