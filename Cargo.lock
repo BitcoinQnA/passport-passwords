@@ -1937,6 +1937,7 @@ dependencies = [
  "fs",
  "futures-util",
  "hex",
+ "jiff",
  "log",
  "nav-file-browser",
  "oneshot",

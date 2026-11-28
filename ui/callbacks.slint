@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Foundation Devices, Inc. <hello@foundation.xyz>
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { StoredCredential, ApprovalState } from "./types.slint";
+import { StoredCredential, ApprovalState, ReleaseRow } from "./types.slint";
 
 export global Callbacks {
     // -- Approval -----------------------------------------------------------
@@ -32,7 +32,7 @@ export global Callbacks {
     in-out property <bool>   editing-archived: false;
     in-out property <string> editing-error-field: "";
     in-out property <string> editing-error: "";
-    in-out property <[string]> editing-release-history: [];
+    in-out property <[ReleaseRow]> editing-release-history: [];
 
     // Status banner (kept off-UI for now; transport writes here).
     in-out property <string> server-status: "";

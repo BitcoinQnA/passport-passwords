@@ -50,12 +50,27 @@ pub struct CredentialRecord {
 /// Longest release history kept on one record. Oldest entries are dropped.
 pub const MAX_RELEASE_HISTORY: usize = 50;
 
+/// Longest surface or peer name kept in a history entry, in bytes.
+pub const MAX_HISTORY_NAME_BYTES: usize = 128;
+
+/// Longest peer QID kept in a history entry, in bytes.
+pub const MAX_HISTORY_QID_BYTES: usize = 64;
+
+/// Clocks earlier than this (1 Jan 2025) have not been set yet, same floor as
+/// the status bar. A history entry stamped before it has no usable date.
+pub const MIN_PLAUSIBLE_UNIX_SECS: u64 = 1_735_693_200;
+
+/// Last second of year 9999. Later stamps cannot be shown as a date.
+const MAX_DISPLAY_UNIX_SECS: u64 = 253_402_300_799;
+
 /// One successful release, as the device recorded it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ReleaseEvent {
-    /// Client/app name the requester reported, after sanitizing.
+    /// Client/app name the requester reported, after sanitizing. This is the
+    /// requester's own claim, not something the device verified.
     pub surface: String,
-    /// Peer name as the Prime knew it at release time.
+    /// Peer name as the Prime knew it at release time. A later rename of the
+    /// peer does not rewrite old entries.
     pub peer_name: String,
     /// Peer QID as authenticated by Quantum Link. Empty if there was no QL peer.
     pub peer_qid: String,
@@ -63,16 +78,68 @@ pub struct ReleaseEvent {
     pub released_at: u64,
 }
 
+/// A calendar date in the viewer's local time zone.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct LocalDate {
+    pub year: i32,
+    pub month: u32,
+    pub day: u32,
+}
+
+impl LocalDate {
+    /// `28 Nov`
+    pub fn day_month(&self) -> String {
+        format!("{} {}", self.day, MONTHS[(self.month - 1) as usize])
+    }
+
+    /// `2026`
+    pub fn year_line(&self) -> String {
+        self.year.to_string()
+    }
+}
+
+/// What one row of the detail page's "Released to" table shows. Each cell is
+/// two lines: date over year on the left, surface over peer on the right.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ReleaseRowText {
+    pub date: String,
+    pub year: String,
+    pub surface: String,
+    pub peer: String,
+}
+
 impl ReleaseEvent {
-    /// Short line for the password's detail page, e.g.
-    /// `Passwords extension on Grok Bot, 27 Nov 18:15`.
-    pub fn display_line(&self) -> String {
-        format!(
-            "{} on {}, {}",
-            self.surface,
-            self.peer_name,
-            format_short_time(self.released_at)
-        )
+    /// Local calendar date of this release, or `None` when the stamp is from a
+    /// clock that was never set (or is out of range).
+    pub fn local_date(&self, utc_offset_secs: i32) -> Option<LocalDate> {
+        if self.released_at < MIN_PLAUSIBLE_UNIX_SECS || self.released_at > MAX_DISPLAY_UNIX_SECS {
+            return None;
+        }
+        Some(local_date(self.released_at, utc_offset_secs))
+    }
+
+    /// Text for the detail page row. `utc_offset_secs` is the offset in force
+    /// at `released_at` in the Prime's time zone (so daylight saving is the
+    /// caller's business, not guessed here).
+    pub fn row_text(&self, utc_offset_secs: i32) -> ReleaseRowText {
+        let (date, year) = match self.local_date(utc_offset_secs) {
+            Some(d) => (d.day_month(), d.year_line()),
+            None => ("Unknown".to_string(), String::new()),
+        };
+        ReleaseRowText {
+            date,
+            year,
+            surface: self.surface.clone(),
+            peer: self.peer_name.clone(),
+        }
+    }
+
+    /// Re-apply the length and character limits to an entry that came from
+    /// somewhere other than this device's own recorder (a restored backup).
+    fn clamp(&mut self) {
+        self.surface = sanitize_display_text(&self.surface, MAX_HISTORY_NAME_BYTES);
+        self.peer_name = sanitize_display_text(&self.peer_name, MAX_HISTORY_NAME_BYTES);
+        self.peer_qid = sanitize_display_text(&self.peer_qid, MAX_HISTORY_QID_BYTES);
     }
 }
 
@@ -80,33 +147,21 @@ const MONTHS: [&str; 12] = [
     "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
 ];
 
-/// `27 Nov 18:15`, or `27 Nov 2025 18:15` when the year is not the current UTC year.
-pub fn format_short_time(secs: u64) -> String {
-    let days = secs / 86400;
-    let rem = secs % 86400;
-    let hour = rem / 3600;
-    let min = (rem % 3600) / 60;
-    let (y, m, d) = date_from_unix_days(days);
-    let mon = MONTHS[(m - 1) as usize];
-    let now_days = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs() / 86400)
-        .unwrap_or(days);
-    let (now_y, _, _) = date_from_unix_days(now_days);
-    if y == now_y {
-        format!("{d} {mon} {hour:02}:{min:02}")
-    } else {
-        format!("{d} {mon} {y} {hour:02}:{min:02}")
-    }
+/// Calendar date `utc_offset_secs` east of UTC at `unix_secs`.
+pub fn local_date(unix_secs: u64, utc_offset_secs: i32) -> LocalDate {
+    let local = unix_secs.min(i64::MAX as u64 / 2) as i64 + i64::from(utc_offset_secs);
+    let (year, month, day) = civil_from_days(local.div_euclid(86_400));
+    LocalDate { year, month, day }
 }
 
-/// Civil date from days since Unix epoch, Howard Hinnant's algorithm.
-fn date_from_unix_days(days: u64) -> (i32, u32, u32) {
-    let z = days as i64 + 719468;
-    let era = if z >= 0 { z } else { z - 146096 } / 146097;
-    let doe = (z - era * 146097) as u64;
-    let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
-    let y = yoe as i64 + era * 400;
+/// Civil date from days since the Unix epoch (Howard Hinnant's algorithm),
+/// valid for negative days too.
+fn civil_from_days(days: i64) -> (i32, u32, u32) {
+    let z = days + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z.rem_euclid(146_097);
+    let yoe = (doe - doe / 1_460 + doe / 36_524 - doe / 146_096) / 365;
+    let y = yoe + era * 400;
     let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
     let mp = (5 * doy + 2) / 153;
     let d = doy - (153 * mp + 2) / 5 + 1;
@@ -115,11 +170,67 @@ fn date_from_unix_days(days: u64) -> (i32, u32, u32) {
     (y as i32, m as u32, d as u32)
 }
 
+/// Strip control and invisible formatting characters (including the bidi
+/// overrides that can reorder surrounding text), trim, and cut to `max` bytes
+/// on a character boundary. Used on text the requester or a backup supplies.
+pub fn sanitize_display_text(raw: &str, max: usize) -> String {
+    let cleaned: String = raw
+        .chars()
+        // Tabs and line breaks become a space so "Grok\nBot" stays two words.
+        .map(|c| if c.is_control() && c.is_whitespace() { ' ' } else { c })
+        .filter(|c| {
+            !c.is_control()
+                && !matches!(
+                    *c,
+                    '\u{200B}'..='\u{200F}'
+                        | '\u{2028}'..='\u{2029}'
+                        | '\u{202A}'..='\u{202E}'
+                        | '\u{2060}'..='\u{2064}'
+                        | '\u{2066}'..='\u{206F}'
+                        | '\u{FEFF}'
+                )
+        })
+        .collect();
+    let mut out = String::new();
+    for ch in cleaned.trim().chars() {
+        if out.len() + ch.len_utf8() > max {
+            break;
+        }
+        out.push(ch);
+    }
+    out.trim_end().to_string()
+}
+
 fn default_color() -> i32 {
     5
 }
 
 impl CredentialRecord {
+    /// Append a release to the history, keeping only the newest
+    /// `MAX_RELEASE_HISTORY`, and note the use.
+    pub fn push_release(&mut self, event: ReleaseEvent) {
+        self.last_used_at = event.released_at;
+        self.release_history.push(event);
+        self.clamp_release_history();
+    }
+
+    /// Enforce the history cap (newest kept) and the per-entry text limits.
+    /// Run on records that did not come from this device's own recorder.
+    pub fn clamp_release_history(&mut self) {
+        let extra = self.release_history.len().saturating_sub(MAX_RELEASE_HISTORY);
+        if extra > 0 {
+            self.release_history.drain(0..extra);
+        }
+    }
+
+    /// `clamp_release_history` plus re-sanitizing every entry's text.
+    pub fn sanitize_release_history(&mut self) {
+        self.clamp_release_history();
+        for event in &mut self.release_history {
+            event.clamp();
+        }
+    }
+
     pub fn new(origin: String, username: String, password: String) -> Self {
         let now = now_secs();
         Self {
@@ -214,6 +325,20 @@ mod tests {
         assert_eq!(r.color, 5);
     }
 
+    fn event(released_at: u64) -> ReleaseEvent {
+        ReleaseEvent {
+            surface: "Chrome extension".into(),
+            peer_name: "Grok Bot".into(),
+            peer_qid: "c3a640a62bc3c1e56ea1542fe7b0cff4".into(),
+            released_at,
+        }
+    }
+
+    const EST: i32 = -5 * 3600;
+    const EDT: i32 = -4 * 3600;
+
+    // ---- old vaults and stored shape -------------------------------------
+
     #[test]
     fn missing_release_history_deserializes_as_empty() {
         let mut r = CredentialRecord::new("https://x".into(), "u".into(), "p".into());
@@ -226,31 +351,210 @@ mod tests {
     }
 
     #[test]
-    fn format_short_time_omits_current_year() {
-        // 27 Nov 2026 18:15:00 UTC
-        let secs = 1_795_803_300;
-        let line = format_short_time(secs);
-        assert_eq!(line, "27 Nov 18:15", "got {line}");
+    fn history_written_by_the_first_release_build_still_loads() {
+        // Exactly the entry shape the earlier build stored for the Foogle demo
+        // password: surface, peer_name, peer_qid, released_at, nothing else.
+        let json = r#"{"surface":"Passwords extension","peer_name":"Grok Bot",
+            "peer_qid":"c3a640a62bc3c1e56ea1542fe7b0cff4","released_at":1795828320}"#;
+        let ev: ReleaseEvent = serde_json::from_str(json).unwrap();
+        assert_eq!(ev.surface, "Passwords extension");
+        assert_eq!(ev.released_at, 1_795_828_320);
+        let row = ev.row_text(EST);
+        assert_eq!(row.date, "27 Nov");
+        assert_eq!(row.year, "2026");
+        assert_eq!(row.surface, "Passwords extension");
+        assert_eq!(row.peer, "Grok Bot");
     }
 
     #[test]
-    fn format_short_time_includes_other_years() {
-        // 1 Jan 2020 00:00:00 UTC
-        let line = format_short_time(1_577_836_800);
-        assert_eq!(line, "1 Jan 2020 00:00", "got {line}");
+    fn history_round_trips_through_serde() {
+        let mut r = CredentialRecord::new("https://x".into(), "u".into(), "p".into());
+        r.push_release(event(1_795_828_320));
+        let back: CredentialRecord = serde_json::from_str(&serde_json::to_string(&r).unwrap()).unwrap();
+        assert_eq!(back.release_history, r.release_history);
+        assert_eq!(back.last_used_at, 1_795_828_320);
     }
 
+    // ---- local date and year ---------------------------------------------
+
     #[test]
-    fn display_line_matches_the_detail_page_shape() {
-        let ev = ReleaseEvent {
-            surface: "Passwords extension".into(),
-            peer_name: "Grok Bot".into(),
-            peer_qid: "c3a640a62bc3c1e56ea1542fe7b0cff4".into(),
-            released_at: 1_795_803_300,
-        };
+    fn row_text_is_date_over_year_and_surface_over_peer() {
+        // 28 Nov 2026 01:12 UTC is still the evening of 27 Nov on the US east coast.
+        let ev = event(1_795_828_320);
         assert_eq!(
-            ev.display_line(),
-            "Passwords extension on Grok Bot, 27 Nov 18:15"
+            ev.row_text(EST),
+            ReleaseRowText {
+                date: "27 Nov".into(),
+                year: "2026".into(),
+                surface: "Chrome extension".into(),
+                peer: "Grok Bot".into(),
+            }
         );
+        // The same instant in UTC is the 28th, which is what the earlier build showed.
+        let utc = ev.row_text(0);
+        assert_eq!((utc.date.as_str(), utc.year.as_str()), ("28 Nov", "2026"));
+    }
+
+    #[test]
+    fn date_rolls_over_midnight_in_both_directions() {
+        // 01:12 UTC, 5 h behind: previous day. 23:00 UTC, 5 h ahead: next day.
+        assert_eq!(local_date(1_795_828_320, EST).day, 27);
+        let late = 1_795_828_320 - 2 * 3600 - 12 * 60 + 22 * 3600; // 28 Nov 21:00 UTC
+        assert_eq!(local_date(late, 5 * 3600).day, 29);
+        assert_eq!(local_date(late, 0).day, 28);
+    }
+
+    #[test]
+    fn year_follows_the_local_clock_not_utc() {
+        // 1 Jan 2027 00:30 UTC is still New Year's Eve 2026 in New York.
+        let d = event(1_798_763_400).local_date(EST).unwrap();
+        assert_eq!((d.day, d.month, d.year), (31, 12, 2026));
+        // 31 Dec 2026 23:30 UTC is already 1 Jan 2027 in Tokyo (+9).
+        let d = event(1_798_759_800).local_date(9 * 3600).unwrap();
+        assert_eq!((d.day, d.month, d.year), (1, 1, 2027));
+        assert_eq!(d.year_line(), "2027");
+        assert_eq!(d.day_month(), "1 Jan");
+    }
+
+    #[test]
+    fn leap_day_and_century_non_leap_year() {
+        let d = event(1_835_438_400).local_date(EST).unwrap(); // 29 Feb 2028 12:00 UTC
+        assert_eq!((d.day, d.month, d.year), (29, 2, 2028));
+        // 1 Mar 2028 02:00 UTC is still 29 Feb in New York.
+        let d = event(1_835_488_800).local_date(EST).unwrap();
+        assert_eq!((d.day, d.month, d.year), (29, 2, 2028));
+        // 2100 is not a leap year: 28 Feb 23:00 UTC + 2 h is 1 Mar.
+        let d = event(4_107_538_800).local_date(2 * 3600).unwrap();
+        assert_eq!((d.day, d.month, d.year), (1, 3, 2100));
+    }
+
+    #[test]
+    fn daylight_saving_uses_the_offset_the_caller_found_for_that_instant() {
+        // New York 8 Mar 2026: 06:59 UTC is 01:59 EST, 07:01 UTC is 03:01 EDT.
+        assert_eq!(event(1_772_953_140).local_date(EST).unwrap().day, 8);
+        assert_eq!(event(1_772_953_260).local_date(EDT).unwrap().day, 8);
+        // Across the November change, late evening still lands on the right day.
+        let dec = event(1_795_828_320);
+        assert_eq!(dec.local_date(EST).unwrap().day, 27);
+        assert_eq!(dec.local_date(EDT).unwrap().day, 27);
+    }
+
+    #[test]
+    fn every_month_has_its_short_name() {
+        let names: Vec<String> = (1..=12)
+            .map(|m| LocalDate { year: 2026, month: m, day: 5 }.day_month())
+            .collect();
+        assert_eq!(
+            names,
+            ["5 Jan", "5 Feb", "5 Mar", "5 Apr", "5 May", "5 Jun", "5 Jul", "5 Aug", "5 Sep", "5 Oct", "5 Nov", "5 Dec"]
+        );
+    }
+
+    #[test]
+    fn civil_dates_match_reference_values_at_the_edges() {
+        let at = |secs: i64| local_date(secs as u64, 0);
+        assert_eq!(at(0), LocalDate { year: 1970, month: 1, day: 1 });
+        assert_eq!(at(86_399), LocalDate { year: 1970, month: 1, day: 1 });
+        assert_eq!(at(86_400), LocalDate { year: 1970, month: 1, day: 2 });
+        assert_eq!(at(951_782_400), LocalDate { year: 2000, month: 2, day: 29 });
+        assert_eq!(at(253_402_300_799), LocalDate { year: 9999, month: 12, day: 31 });
+        // A stamp just after 1970 shown west of UTC lands before the epoch day.
+        assert_eq!(local_date(3600, EST), LocalDate { year: 1969, month: 12, day: 31 });
+    }
+
+    #[test]
+    fn stamps_from_an_unset_clock_have_no_date() {
+        for secs in [0, 1, MIN_PLAUSIBLE_UNIX_SECS - 1, MAX_DISPLAY_UNIX_SECS + 1, u64::MAX] {
+            let row = event(secs).row_text(EST);
+            assert_eq!(row.date, "Unknown", "secs={secs}");
+            assert_eq!(row.year, "", "secs={secs}");
+            assert_eq!(row.surface, "Chrome extension");
+        }
+        assert!(event(MIN_PLAUSIBLE_UNIX_SECS).local_date(0).is_some());
+        assert!(event(MAX_DISPLAY_UNIX_SECS).local_date(0).is_some());
+    }
+
+    #[test]
+    fn extreme_offsets_do_not_panic() {
+        let _ = local_date(MIN_PLAUSIBLE_UNIX_SECS, i32::MAX);
+        let _ = local_date(MIN_PLAUSIBLE_UNIX_SECS, i32::MIN);
+        let _ = local_date(u64::MAX, i32::MAX);
+    }
+
+    // ---- history list ----------------------------------------------------
+
+    #[test]
+    fn push_release_keeps_the_newest_fifty_in_order() {
+        let mut r = CredentialRecord::new("https://x".into(), "u".into(), "p".into());
+        for i in 0..(MAX_RELEASE_HISTORY as u64 + 7) {
+            r.push_release(event(MIN_PLAUSIBLE_UNIX_SECS + i));
+        }
+        assert_eq!(r.release_history.len(), MAX_RELEASE_HISTORY);
+        assert_eq!(r.release_history[0].released_at, MIN_PLAUSIBLE_UNIX_SECS + 7);
+        assert_eq!(
+            r.release_history.last().unwrap().released_at,
+            MIN_PLAUSIBLE_UNIX_SECS + MAX_RELEASE_HISTORY as u64 + 6
+        );
+        assert_eq!(r.last_used_at, MIN_PLAUSIBLE_UNIX_SECS + MAX_RELEASE_HISTORY as u64 + 6);
+    }
+
+    #[test]
+    fn exactly_fifty_is_kept_and_the_fifty_first_drops_the_oldest() {
+        let mut r = CredentialRecord::new("https://x".into(), "u".into(), "p".into());
+        for i in 0..MAX_RELEASE_HISTORY as u64 {
+            r.push_release(event(MIN_PLAUSIBLE_UNIX_SECS + i));
+        }
+        assert_eq!(r.release_history.len(), 50);
+        assert_eq!(r.release_history[0].released_at, MIN_PLAUSIBLE_UNIX_SECS);
+        r.push_release(event(MIN_PLAUSIBLE_UNIX_SECS + 50));
+        assert_eq!(r.release_history.len(), 50);
+        assert_eq!(r.release_history[0].released_at, MIN_PLAUSIBLE_UNIX_SECS + 1);
+    }
+
+    #[test]
+    fn restored_history_is_capped_and_cleaned() {
+        let mut r = CredentialRecord::new("https://x".into(), "u".into(), "p".into());
+        for i in 0..200u64 {
+            r.release_history.push(ReleaseEvent {
+                surface: format!("\u{202E}evil{i}\u{0007}"),
+                peer_name: "n".repeat(10_000),
+                peer_qid: "q".repeat(10_000),
+                released_at: MIN_PLAUSIBLE_UNIX_SECS + i,
+            });
+        }
+        r.sanitize_release_history();
+        assert_eq!(r.release_history.len(), MAX_RELEASE_HISTORY);
+        assert_eq!(r.release_history[0].released_at, MIN_PLAUSIBLE_UNIX_SECS + 150);
+        for ev in &r.release_history {
+            assert!(!ev.surface.contains('\u{202E}') && !ev.surface.contains('\u{0007}'));
+            assert_eq!(ev.peer_name.len(), MAX_HISTORY_NAME_BYTES);
+            assert_eq!(ev.peer_qid.len(), MAX_HISTORY_QID_BYTES);
+        }
+    }
+
+    // ---- text sanitizing -------------------------------------------------
+
+    #[test]
+    fn sanitizer_removes_controls_and_bidi_tricks_and_trims() {
+        assert_eq!(sanitize_display_text("  Chrome\textension\n ", 128), "Chrome extension");
+        assert_eq!(sanitize_display_text("a\u{2028}b\u{2029}c\u{0007}d", 128), "abcd");
+        assert_eq!(sanitize_display_text("a\u{202E}b\u{200B}c\u{2066}d\u{FEFF}", 128), "abcd");
+        assert_eq!(sanitize_display_text("   ", 128), "");
+        assert_eq!(sanitize_display_text("", 128), "");
+    }
+
+    #[test]
+    fn sanitizer_truncates_on_a_character_boundary() {
+        // 'é' is two bytes: 5 of them are 10 bytes, a 9-byte cap keeps 4.
+        let out = sanitize_display_text("ééééé", 9);
+        assert_eq!(out, "éééé");
+        assert!(out.len() <= 9);
+        assert_eq!(sanitize_display_text("日本語日本語", 7), "日本");
+        assert_eq!(sanitize_display_text("abc", 0), "");
+    }
+
+    #[test]
+    fn sanitizer_keeps_ordinary_non_ascii_names() {
+        assert_eq!(sanitize_display_text("Grok Bot 🤖 — café", 128), "Grok Bot 🤖 — café");
     }
 }

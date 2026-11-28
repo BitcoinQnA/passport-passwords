@@ -63,6 +63,8 @@ navigation-permissions = ["os/files/PickPaths"]
     "SubscribeSystemTheme",
     "GetDebugTouch",
     "SubscribeDebugTouch",
+    "GetTimeZone",
+    "SubscribeTimeZone",
 ]
 "os/security" = [
     "GetAppSeed",

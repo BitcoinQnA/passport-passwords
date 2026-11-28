@@ -2,9 +2,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import { AppHeader, Button, ButtonSection, CardColorPicker, IconButton, HeadingSm, TextSm,
-         BasePage, PageBody, ContentSection, ConfirmationModal } from "../../compat/widgets.slint";
+         BasePage, PageBody, ContentSection, ScrollBody, ConfirmationModal } from "../../compat/widgets.slint";
 import { Importance, Palette, Size } from "../../compat/theme.slint";
 import { Callbacks } from "../../callbacks.slint";
+import { ReleaseRow } from "../../types.slint";
 import { Navigate } from "../../gen/navigate.slint";
 
 component FieldBlock inherits Rectangle {
@@ -57,6 +58,61 @@ component FieldBlock inherits Rectangle {
     }
 }
 
+/// "Released to": one row per approved release, newest first. Two columns,
+/// two lines each: date over year, app over the device it came through.
+component ReleaseHistoryCard inherits Rectangle {
+    in property <[ReleaseRow]> rows;
+
+    background: Palette.background-primary-alternative;
+    border-radius: Size.sz3;
+
+    VerticalLayout {
+        padding: Size.sz4;
+        spacing: Size.sz3;
+
+        HeadingSm {
+            text: "Released to";
+            color: Palette.content-secondary;
+        }
+
+        for row in rows: HorizontalLayout {
+            spacing: Size.sz4;
+
+            VerticalLayout {
+                width: Size.sz16 + Size.sz9;
+                TextSm {
+                    text: row.date;
+                    color: Palette.content-primary;
+                    wrap: no-wrap;
+                    overflow: elide;
+                }
+                TextSm {
+                    text: row.year;
+                    color: Palette.content-tertiary;
+                    wrap: no-wrap;
+                    overflow: elide;
+                }
+            }
+
+            VerticalLayout {
+                horizontal-stretch: 1;
+                TextSm {
+                    text: row.surface;
+                    color: Palette.content-primary;
+                    wrap: no-wrap;
+                    overflow: elide;
+                }
+                TextSm {
+                    text: row.peer;
+                    color: Palette.content-tertiary;
+                    wrap: no-wrap;
+                    overflow: elide;
+                }
+            }
+        }
+    }
+}
+
 export component DetailsPage inherits Rectangle {
     property <bool> show-reveal-confirm: false;
     property <bool> password-revealed: false;
@@ -84,68 +140,56 @@ export component DetailsPage inherits Rectangle {
             }
 
             PageBody {
-                ContentSection {
-                    spacing: Size.sz4;
+                ScrollBody {
+                    p-x: Size.zero;
+                    p-y: Size.zero;
 
-                    FieldBlock {
-                        label: "Website";
-                        value: Callbacks.editing-origin;
-                        sensitive: false;
-                        blurred: false;
-                        action-label: "";
-                    }
+                    ContentSection {
+                        spacing: Size.sz4;
 
-                    FieldBlock {
-                        label: "Username";
-                        value: Callbacks.editing-username;
-                        sensitive: false;
-                        blurred: false;
-                        action-label: "";
-                    }
+                        FieldBlock {
+                            label: "Website";
+                            value: Callbacks.editing-origin;
+                            sensitive: false;
+                            blurred: false;
+                            action-label: "";
+                        }
 
-                    FieldBlock {
-                        label: "Password";
-                        value: password-value;
-                        sensitive: true;
-                        blurred: !password-revealed;
-                        action-label: password-revealed ? "Hide" : "Reveal password";
-                        action-clicked => {
-                            if (password-revealed) {
-                                password-revealed = false;
-                                password-value = "";
-                            } else {
-                                show-reveal-confirm = true;
+                        FieldBlock {
+                            label: "Username";
+                            value: Callbacks.editing-username;
+                            sensitive: false;
+                            blurred: false;
+                            action-label: "";
+                        }
+
+                        FieldBlock {
+                            label: "Password";
+                            value: password-value;
+                            sensitive: true;
+                            blurred: !password-revealed;
+                            action-label: password-revealed ? "Hide" : "Reveal password";
+                            action-clicked => {
+                                if (password-revealed) {
+                                    password-revealed = false;
+                                    password-value = "";
+                                } else {
+                                    show-reveal-confirm = true;
+                                }
                             }
                         }
-                    }
 
-                    if Callbacks.editing-release-history.length > 0: Rectangle {
-                        background: Palette.background-primary-alternative;
-                        border-radius: Size.sz3;
-
-                        VerticalLayout {
-                            padding: Size.sz4;
-                            spacing: Size.sz1;
-
-                            HeadingSm {
-                                text: "Released to";
-                                color: Palette.content-secondary;
-                            }
-
-                            for line in Callbacks.editing-release-history: TextSm {
-                                text: line;
-                                color: Palette.content-primary;
-                                wrap: word-wrap;
-                            }
+                        if Callbacks.editing-release-history.length > 0: ReleaseHistoryCard {
+                            rows: Callbacks.editing-release-history;
                         }
-                    }
 
-                    CardColorPicker {
-                        selected-index: Callbacks.editing-color;
-                        title: "Color";
-                        changed(index) => {
-                            Callbacks.editing-color = index;
-                            Callbacks.change-color(Callbacks.editing-uuid, index);
+                        CardColorPicker {
+                            selected-index: Callbacks.editing-color;
+                            title: "Color";
+                            changed(index) => {
+                                Callbacks.editing-color = index;
+                                Callbacks.change-color(Callbacks.editing-uuid, index);
+                            }
                         }
                     }
                 }

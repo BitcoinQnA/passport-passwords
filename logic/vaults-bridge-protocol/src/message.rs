@@ -81,7 +81,7 @@ pub struct ReleaseCredentialParams {
     pub origin: String,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub username_hint: Option<String>,
-    /// Client/app name the requester reports, e.g. "Passwords extension".
+    /// Client/app name the requester reports, e.g. "Chrome extension".
     /// Optional so older clients still work. The device records this as the
     /// surface; it does not trust it for the paired peer's identity.
     #[serde(skip_serializing_if = "Option::is_none", default)]
@@ -244,7 +244,7 @@ mod tests {
             method: Method::ReleaseCredential(ReleaseCredentialParams {
                 origin: "https://github.com".into(),
                 username_hint: Some("qna@foundation.xyz".into()),
-                client_name: Some("Passwords extension".into()),
+                client_name: Some("Chrome extension".into()),
                 request_nonce: 42,
             }),
         };

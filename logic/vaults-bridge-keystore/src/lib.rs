@@ -20,7 +20,7 @@ use sha2::Sha256;
 use thiserror::Error;
 use uuid::Uuid;
 use vaults_bridge_core::{
-    record::{ReleaseEvent, MAX_RELEASE_HISTORY},
+    record::ReleaseEvent,
     store::{CredentialMatch, CredentialSummary, ExistingCredential, StoreError},
     CredentialRecord, CredentialStore,
 };
@@ -196,7 +196,13 @@ impl Keystore {
         sealed.extend_from_slice(&nonce);
         sealed.extend_from_slice(&ciphertext);
         let raw = unseal(&key, &sealed)?;
-        serde_json::from_slice(&raw).map_err(KeystoreError::from)
+        let mut records: Vec<CredentialRecord> = serde_json::from_slice(&raw)?;
+        // A backup file is not this device's own recorder: hold the release
+        // history it carries to the same cap and text limits.
+        for record in &mut records {
+            record.sanitize_release_history();
+        }
+        Ok(records)
     }
 
     /// Replace all records in this open keystore. The encryption key stays the
@@ -533,12 +539,7 @@ impl CredentialStore for Keystore {
             .iter_mut()
             .find(|r| !r.archived && r.origin == origin && r.username == username)
         {
-            rec.last_used_at = event.released_at;
-            rec.release_history.push(event);
-            let extra = rec.release_history.len().saturating_sub(MAX_RELEASE_HISTORY);
-            if extra > 0 {
-                rec.release_history.drain(0..extra);
-            }
+            rec.push_release(event);
         }
         Ok(())
     }
@@ -622,6 +623,7 @@ fn unseal(key: &[u8; 32], blob: &[u8]) -> Result<Vec<u8>, KeystoreError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use vaults_bridge_core::record::MAX_RELEASE_HISTORY;
 
     #[test]
     fn automatic_colors_start_at_teal_and_cycle_through_picker_order() {
@@ -923,24 +925,33 @@ mod tests {
         assert_ne!(kept.records()[0].id, kept.records()[1].id);
     }
 
-    #[test]
-    fn record_release_appends_caps_and_survives_seal() {
+    fn ev(surface: &str, peer: &str, at: u64) -> ReleaseEvent {
+        ReleaseEvent {
+            surface: surface.into(),
+            peer_name: peer.into(),
+            peer_qid: "abc".into(),
+            released_at: at,
+        }
+    }
+
+    fn keystore_with_one() -> Keystore {
         let mut ks = Keystore::new(b"test-master");
         ks.add(CredentialRecord::new(
             "https://example.com".into(),
             "alice".into(),
             "secret".into(),
         ));
+        ks
+    }
+
+    #[test]
+    fn record_release_appends_caps_and_survives_seal() {
+        let mut ks = keystore_with_one();
         for i in 0..(MAX_RELEASE_HISTORY + 3) {
             ks.record_release(
                 "https://example.com",
                 "alice",
-                ReleaseEvent {
-                    surface: "Passwords extension".into(),
-                    peer_name: "Grok Bot".into(),
-                    peer_qid: "abc".into(),
-                    released_at: 1_000 + i as u64,
-                },
+                ev("Chrome extension", "Grok Bot", 1_000 + i as u64),
             )
             .unwrap();
         }
@@ -954,5 +965,140 @@ mod tests {
         assert_eq!(opened.records()[0].release_history[0].peer_name, "Grok Bot");
         // password must still be present and is not part of history
         assert_eq!(opened.records()[0].password, "secret");
+    }
+
+    #[test]
+    fn vault_sealed_before_release_history_existed_opens_and_then_records() {
+        // The on-disk vault is a sealed JSON array of records. Build one the way
+        // the build before release history wrote it: no release_history key.
+        let mut old = CredentialRecord::new("https://example.com".into(), "alice".into(), "secret".into());
+        old.label = "Foogle demo".into();
+        let mut value = serde_json::to_value(vec![old]).unwrap();
+        value[0].as_object_mut().unwrap().remove("release_history");
+        assert!(value[0].get("release_history").is_none());
+        let key = derive_key(b"test-master");
+        let sealed_old = seal(&key, &serde_json::to_vec(&value).unwrap()).unwrap();
+
+        let mut ks = Keystore::open(b"test-master", &sealed_old).unwrap();
+        assert_eq!(ks.records().len(), 1);
+        assert!(ks.records()[0].release_history.is_empty());
+        assert_eq!(ks.records()[0].label, "Foogle demo");
+        assert_eq!(ks.records()[0].password, "secret");
+
+        ks.record_release("https://example.com", "alice", ev("Chrome extension", "Grok Bot", 1_795_828_320))
+            .unwrap();
+        let reopened = Keystore::open(b"test-master", &ks.seal().unwrap()).unwrap();
+        assert_eq!(reopened.records()[0].release_history.len(), 1);
+    }
+
+    #[test]
+    fn existing_history_survives_edits_color_archive_and_password_updates() {
+        let mut ks = keystore_with_one();
+        ks.record_release("https://example.com", "alice", ev("Chrome extension", "Grok Bot", 1_000))
+            .unwrap();
+        let id = ks.records()[0].id;
+
+        ks.edit(id, "Renamed".into(), 3, "alice".into(), "new-secret".into()).unwrap();
+        ks.set_color(id, 4).unwrap();
+        ks.set_archived(id, true).unwrap();
+        ks.set_archived(id, false).unwrap();
+        ks.upsert(
+            "https://example.com".into(),
+            "alice".into(),
+            "newer-secret".into(),
+            Some("Again".into()),
+        )
+        .unwrap();
+        ks.import_many(
+            vec![ImportItem {
+                origin: "https://example.com".into(),
+                username: "alice".into(),
+                password: "imported".into(),
+                label: String::new(),
+                notes: String::new(),
+            }],
+            ImportPolicy::Replace,
+        );
+
+        let rec = &ks.records()[0];
+        assert_eq!(rec.password, "imported");
+        assert_eq!(rec.release_history.len(), 1);
+        assert_eq!(rec.release_history[0].surface, "Chrome extension");
+    }
+
+    #[test]
+    fn archived_or_unknown_credentials_record_nothing() {
+        let mut ks = keystore_with_one();
+        let id = ks.records()[0].id;
+        ks.set_archived(id, true).unwrap();
+        ks.record_release("https://example.com", "alice", ev("Chrome extension", "Grok Bot", 1_000))
+            .unwrap();
+        assert!(ks.records()[0].release_history.is_empty());
+        ks.set_archived(id, false).unwrap();
+        ks.record_release("https://example.com", "bob", ev("Chrome extension", "Grok Bot", 1_000))
+            .unwrap();
+        ks.record_release("https://other.example", "alice", ev("Chrome extension", "Grok Bot", 1_000))
+            .unwrap();
+        assert!(ks.records()[0].release_history.is_empty());
+    }
+
+    #[test]
+    fn peer_rename_does_not_rewrite_older_entries() {
+        let mut ks = keystore_with_one();
+        ks.record_release("https://example.com", "alice", ev("Chrome extension", "Forge box", 1_000))
+            .unwrap();
+        ks.record_release("https://example.com", "alice", ev("Chrome extension", "Grok Bot", 2_000))
+            .unwrap();
+        let names: Vec<&str> =
+            ks.records()[0].release_history.iter().map(|e| e.peer_name.as_str()).collect();
+        assert_eq!(names, ["Forge box", "Grok Bot"]);
+    }
+
+    #[test]
+    fn history_in_a_backup_is_capped_and_cleaned_on_the_way_in() {
+        let mut ks = keystore_with_one();
+        {
+            let rec = &mut ks.records[0];
+            for i in 0..120u64 {
+                rec.release_history.push(ReleaseEvent {
+                    surface: format!("\u{202E}app{i}"),
+                    peer_name: "p".repeat(5_000),
+                    peer_qid: "q".repeat(5_000),
+                    released_at: 1_000 + i,
+                });
+            }
+        }
+        let backup = ks.export_backup(b"pass").unwrap();
+        let records = Keystore::records_from_backup(b"pass", &backup).unwrap();
+        let history = &records[0].release_history;
+        assert_eq!(history.len(), MAX_RELEASE_HISTORY);
+        assert_eq!(history[0].released_at, 1_070);
+        assert!(history.iter().all(|e| !e.surface.contains('\u{202E}')));
+        assert!(history.iter().all(|e| e.peer_name.len() <= 128 && e.peer_qid.len() <= 64));
+    }
+
+    #[test]
+    fn backup_replace_restores_the_backups_history_and_keep_both_keeps_each() {
+        let mut backed_up = keystore_with_one();
+        backed_up
+            .record_release("https://example.com", "alice", ev("Chrome extension", "Grok Bot", 1_000))
+            .unwrap();
+        let records = backed_up.records().to_vec();
+
+        let mut replaced = keystore_with_one();
+        replaced
+            .record_release("https://example.com", "alice", ev("Chrome extension", "Forge box", 9_000))
+            .unwrap();
+        replaced.restore_many(records.clone(), ImportPolicy::Replace);
+        assert_eq!(replaced.records().len(), 1);
+        assert_eq!(replaced.records()[0].release_history[0].peer_name, "Grok Bot");
+
+        let mut kept = keystore_with_one();
+        kept.record_release("https://example.com", "alice", ev("Chrome extension", "Forge box", 9_000))
+            .unwrap();
+        kept.restore_many(records, ImportPolicy::KeepBoth);
+        assert_eq!(kept.records().len(), 2);
+        assert_eq!(kept.records()[0].release_history[0].peer_name, "Forge box");
+        assert_eq!(kept.records()[1].release_history[0].peer_name, "Grok Bot");
     }
 }

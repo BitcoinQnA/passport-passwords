@@ -1,6 +1,19 @@
 // SPDX-FileCopyrightText: 2026 Foundation Devices, Inc. <hello@foundation.xyz>
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+/// One "Released to" row on the details page: two lines per column.
+@rust-attr(derive(serde::Serialize, serde::Deserialize))
+export struct ReleaseRow {
+    /// Prime-local day and month, e.g. "28 Nov".
+    date: string,
+    /// Prime-local year, e.g. "2026".
+    year: string,
+    /// What asked for the password, e.g. "Chrome extension".
+    surface: string,
+    /// Name of the paired device it came through, e.g. "Grok Bot".
+    peer: string,
+}
+
 @rust-attr(derive(serde::Serialize, serde::Deserialize))
 export struct StoredCredential {
     uuid: string,
@@ -15,9 +28,8 @@ export struct StoredCredential {
     /// Pre-formatted human "5 minutes ago" / "Today 14:32" string. Empty
     /// in the main-list view; only the details page populates this.
     last-used: string,
-    /// Newest first, already formatted as
-    /// "Passwords extension on Grok Bot, 27 Nov 18:15".
-    release-history: [string],
+    /// Newest first.
+    release-history: [ReleaseRow],
 }
 
 @rust-attr(derive(serde::Serialize, serde::Deserialize))

@@ -3,6 +3,7 @@
 
 mod backup_flow;
 mod import_flow;
+mod local_time;
 mod master_key;
 mod persist;
 mod state;
@@ -89,6 +90,7 @@ fn app_main(_cx: AppContext, ui: AppWindow) {
     drop(master);
 
     let state = Arc::new(Mutex::new(AppState::new(keystore.clone(), ui.as_weak())));
+    local_time::init(state.clone());
     state.lock().unwrap().refresh_credentials();
 
     // Approval slot: drained on user tap.

@@ -22,7 +22,10 @@ pub mod store;
 pub use approval::{ApprovalAction, ApprovalDecision, ApprovalRequest, Approver, ArcApprover};
 pub use engine::{Engine, EngineConfig, ReleasePeer, DEFAULT_IDLE_MS, SESSION_INFO};
 pub use origin::{origin_match_key, registrable_domain, Origin, OriginError};
-pub use record::{CredentialRecord, ReleaseEvent, MAX_RELEASE_HISTORY, format_short_time};
+pub use record::{
+    local_date, sanitize_display_text, CredentialRecord, LocalDate, ReleaseEvent, ReleaseRowText,
+    MAX_RELEASE_HISTORY, MIN_PLAUSIBLE_UNIX_SECS,
+};
 pub use session::{Session, SessionError, SessionState};
 pub use store::{
     CredentialMatch, CredentialStore, CredentialSummary, ExistingCredential, StoreError,

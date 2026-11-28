@@ -5,11 +5,11 @@
 
 use std::sync::{Arc, Mutex};
 
-use slint_keyos_platform::slint::{ComponentHandle, ModelRc, SharedString, VecModel};
-use vaults_bridge_core::CredentialRecord;
+use slint_keyos_platform::slint::{ComponentHandle, ModelRc, VecModel};
+use vaults_bridge_core::{CredentialRecord, ReleaseEvent};
 use vaults_bridge_keystore::Keystore;
 
-use crate::{AppWindow, Callbacks, StoredCredential};
+use crate::{local_time, AppWindow, Callbacks, ReleaseRow, StoredCredential};
 
 pub struct AppState {
     pub keystore: Arc<Mutex<Keystore>>,
@@ -74,9 +74,21 @@ fn record_to_view(r: &CredentialRecord) -> StoredCredential {
             r.release_history
                 .iter()
                 .rev()
-                .map(|ev| SharedString::from(ev.display_line()))
+                .map(release_row)
                 .collect::<Vec<_>>(),
         )),
+    }
+}
+
+/// One "Released to" row in the Prime's local time, using the zone offset that
+/// applied on that day (so summer and winter entries both read correctly).
+fn release_row(ev: &ReleaseEvent) -> ReleaseRow {
+    let text = ev.row_text(local_time::utc_offset_seconds(ev.released_at));
+    ReleaseRow {
+        date: text.date.into(),
+        year: text.year.into(),
+        surface: text.surface.into(),
+        peer: text.peer.into(),
     }
 }
 
