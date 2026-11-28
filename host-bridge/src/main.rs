@@ -33,12 +33,11 @@ use tokio_tungstenite::tungstenite::{
 };
 use vaults_bridge_ql::{BridgeFrame, RequestBridgeFrame, APP_ID, MAX_FRAME_BYTES};
 
-/// Runs `ql-usb-relay` next to Passport, over the box's SSH connection to Jarvis
-const DEFAULT_RELAY: &str = "ssh -o BatchMode=yes -o ConnectTimeout=30 -o ServerAliveInterval=15 \
-    jarvis@100.80.55.66 /home/jarvis/prime-dev-build/ql-usb-relay";
+/// Default USB relay command. Override with `--relay` when the helper is not on PATH.
+const DEFAULT_RELAY: &str = "ql-usb-relay";
 
-/// Chromium's ID for an unpacked extension is derived from its path; this is the ID of
-/// /workspace/prime-ql-autofill/passport-passwords/extension.
+/// Chromium's ID for an unpacked extension is derived from its directory path.
+/// This is the ID of this repo's `extension/` directory when loaded unpacked.
 const DEFAULT_EXTENSION_ORIGIN: &str = "chrome-extension://hmhfapggphalabfmcdkkocjgbggbhilf";
 
 /// How long a shown invite stays usable
@@ -74,7 +73,7 @@ enum Command {
     /// and pair once it did. The code goes from this computer's screen to Passport's camera only.
     Invite {
         /// Where to write the code as a QR image, to show to Passport
-        #[arg(long, default_value = "/workspace/prime-ql-autofill/pairing-qr.png")]
+        #[arg(long, default_value = "pairing-qr.png")]
         qr_png: PathBuf,
     },
     /// Check that the relay reaches Passport's QL USB interface, without a session.
@@ -89,8 +88,8 @@ enum Command {
         /// Loopback address the extension connects to
         #[arg(long, default_value = "127.0.0.1:9876")]
         listen: String,
-        /// The only WebSocket Origin accepted: the Passwords extension as loaded unpacked from
-        /// /workspace/prime-ql-autofill/passport-passwords/extension (its ID follows from that path)
+        /// The only WebSocket Origin accepted. Defaults to this repo's extension
+        /// loaded unpacked (its ID follows from the `extension/` path).
         #[arg(long, default_value = DEFAULT_EXTENSION_ORIGIN)]
         allowed_origin: String,
     },

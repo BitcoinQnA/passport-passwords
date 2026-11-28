@@ -1,19 +1,18 @@
 #!/bin/bash
-# Keyless rendezvous for when the Prime is plugged into the laptop.
-# The box is not reachable on the tailnet; both sides dial Jarvis outbound.
-# Jarvis only forwards opaque bytes (ql-byte-splice.py, bound to its Tailscale IP).
-# The laptop never listens.
+# Keyless rendezvous for when the Prime is plugged into a laptop that can reach
+# a splice host outbound. Both sides dial that host; the laptop never listens.
+# The splice (ql-byte-splice.py) forwards opaque bytes, bound to a Tailscale IP.
 #
 # Start the splice (one-off, not a service):
-#   ssh jarvis 'python3 -u /tmp/ql-byte-splice.py 100.80.55.66 19876'
+#   ssh splice-host 'python3 -u ql-byte-splice.py <splice-tailscale-ip> 19876'
 # Path check (no USB, no Prime prompt):
-#   on the box:  passwords-ql-bridge --relay "$RELAY" dial-test
-#   on the laptop: ql-usb-relay.exe --dial-only --connect 100.80.55.66:19876
-# To carry a session later, after Owen OKs a Prime prompt:
-#   on the laptop: ql-usb-relay.exe --connect 100.80.55.66:19876
-#   on the box:    passwords-ql-bridge --state "$STATE" --relay "$RELAY" serve
+#   passwords-ql-bridge --relay "$RELAY" dial-test
+#   ql-usb-relay --dial-only --connect <splice-tailscale-ip>:19876
+# To carry a session, after the Prime prompt is approved:
+#   ql-usb-relay --connect <splice-tailscale-ip>:19876
+#   passwords-ql-bridge --state "$STATE" --relay "$RELAY" serve
 set -euo pipefail
-RELAY='ssh -o BatchMode=yes -o ConnectTimeout=30 -o ServerAliveInterval=15 jarvis@100.80.55.66 -W 100.80.55.66:19876'
-STATE=${STATE:-/home/box/.config/passwords-ql/grok-bot.state}
-BRIDGE=/workspace/prime-ql-autofill/passport-passwords/host-bridge/target/release/passwords-ql-bridge
+RELAY=${RELAY:?set RELAY to an ssh or connect command that reaches the USB helper}
+STATE=${STATE:-ql-host.state}
+BRIDGE=${BRIDGE:-passwords-ql-bridge}
 exec "$BRIDGE" --state "$STATE" --relay "$RELAY" "$@"
