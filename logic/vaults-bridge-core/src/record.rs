@@ -73,6 +73,14 @@ pub fn release_rows_have_more(total: usize, presses: usize) -> bool {
     release_rows_shown(total, presses) < total
 }
 
+/// True when the details page should go back to showing only the newest
+/// release. Used when a new release lands while that page is already open.
+/// A redraw of the same history (for example after a colour edit) is not
+/// a reason to collapse an expanded list.
+pub fn release_list_should_recollapse(previous: &[ReleaseEvent], next: &[ReleaseEvent]) -> bool {
+    previous.len() != next.len() || previous.last() != next.last()
+}
+
 /// Clocks earlier than this (1 Jan 2025) have not been set yet, same floor as
 /// the status bar. A history entry stamped before it has no usable date.
 pub const MIN_PLAUSIBLE_UNIX_SECS: u64 = 1_735_693_200;
@@ -634,5 +642,34 @@ mod tests {
     fn absurd_press_counts_do_not_overflow() {
         assert_eq!(release_rows_shown(50, usize::MAX), 50);
         assert!(!release_rows_have_more(50, usize::MAX));
+    }
+
+    #[test]
+    fn a_new_release_collapses_an_open_list_and_a_redraw_does_not() {
+        fn ev(at: u64, peer: &str) -> ReleaseEvent {
+            ReleaseEvent {
+                surface: "Chrome extension".into(),
+                peer_name: peer.into(),
+                peer_qid: "abc".into(),
+                released_at: at,
+            }
+        }
+        let one = vec![ev(1_000, "Grok Bot")];
+        let two = vec![ev(1_000, "Grok Bot"), ev(2_000, "Grok Bot")];
+        assert!(!release_list_should_recollapse(&one, &one));
+        assert!(!release_list_should_recollapse(&two, &two));
+        assert!(release_list_should_recollapse(&[], &one));
+        assert!(release_list_should_recollapse(&one, &two));
+        // Newest is last in the stored vec; a cap drop keeps the length
+        // but still changes the newest entry.
+        let mut capped: Vec<_> = (0..50).map(|i| ev(1_000 + i, "Grok Bot")).collect();
+        let same = capped.clone();
+        assert!(!release_list_should_recollapse(&capped, &same));
+        capped.remove(0);
+        capped.push(ev(2_000, "Grok Bot"));
+        assert!(release_list_should_recollapse(&same, &capped));
+        // A later release that keeps the count but changes the newest row.
+        let renamed = vec![ev(1_000, "Grok Bot"), ev(2_000, "Forge box")];
+        assert!(release_list_should_recollapse(&two, &renamed));
     }
 }

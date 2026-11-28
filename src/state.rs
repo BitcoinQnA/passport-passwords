@@ -6,7 +6,7 @@
 use std::sync::{Arc, Mutex};
 
 use slint_keyos_platform::slint::{ComponentHandle, ModelRc, VecModel};
-use vaults_bridge_core::{CredentialRecord, ReleaseEvent};
+use vaults_bridge_core::{release_list_should_recollapse, CredentialRecord, ReleaseEvent};
 use vaults_bridge_keystore::Keystore;
 
 use crate::{local_time, AppWindow, Callbacks, ReleaseRow, StoredCredential};
@@ -15,11 +15,14 @@ pub struct AppState {
     pub keystore: Arc<Mutex<Keystore>>,
     pub ui: slint_keyos_platform::slint::Weak<AppWindow>,
     pub search: String,
+    /// History last pushed to the open details page, so a later refresh can
+    /// tell a new release from a redraw of the same list.
+    details_history: Mutex<(String, Vec<ReleaseEvent>)>,
 }
 
 impl AppState {
     pub fn new(keystore: Arc<Mutex<Keystore>>, ui: slint_keyos_platform::slint::Weak<AppWindow>) -> Self {
-        Self { keystore, ui, search: String::new() }
+        Self { keystore, ui, search: String::new(), details_history: Mutex::new((String::new(), Vec::new())) }
     }
 
     pub fn set_search(&mut self, q: String) {
@@ -48,6 +51,34 @@ impl AppState {
         cb.set_live_count(live);
         cb.set_archived_count(archived);
         cb.set_next_default_color(ks.next_automatic_color());
+        self.refresh_open_details(&cb, ks.records());
+    }
+
+    /// Keep an already-open details page in step with the vault. The list
+    /// model is rebuilt above, but the details page reads
+    /// `editing-release-history`, which was a snapshot from when the page
+    /// was opened.
+    fn refresh_open_details(&self, cb: &Callbacks, records: &[CredentialRecord]) {
+        let editing = cb.get_editing_uuid();
+        if editing.is_empty() {
+            *self.details_history.lock().unwrap() = (String::new(), Vec::new());
+            return;
+        }
+        let Some(rec) = records.iter().find(|r| r.id.to_string() == editing.as_str()) else {
+            return;
+        };
+        let next = rec.release_history.clone();
+        let recollapse = {
+            let mut slot = self.details_history.lock().unwrap();
+            let known = slot.0 == editing.as_str();
+            let should = known && release_list_should_recollapse(&slot.1, &next);
+            *slot = (editing.to_string(), next);
+            should
+        };
+        cb.set_editing_release_history(ModelRc::new(VecModel::from(history_rows(rec))));
+        if recollapse {
+            cb.set_editing_release_presses(0);
+        }
     }
 }
 
@@ -70,14 +101,12 @@ fn record_to_view(r: &CredentialRecord) -> StoredCredential {
         color: r.color,
         archived: r.archived,
         last_used: format_last_used(r.last_used_at).into(),
-        release_history: ModelRc::new(VecModel::from(
-            r.release_history
-                .iter()
-                .rev()
-                .map(release_row)
-                .collect::<Vec<_>>(),
-        )),
+        release_history: ModelRc::new(VecModel::from(history_rows(r))),
     }
+}
+
+fn history_rows(r: &CredentialRecord) -> Vec<ReleaseRow> {
+    r.release_history.iter().rev().map(release_row).collect()
 }
 
 /// One "Released to" row in the Prime's local time, using the zone offset that

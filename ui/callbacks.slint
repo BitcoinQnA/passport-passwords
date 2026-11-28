@@ -33,6 +33,9 @@ export global Callbacks {
     in-out property <string> editing-error-field: "";
     in-out property <string> editing-error: "";
     in-out property <[ReleaseRow]> editing-release-history: [];
+    // Times the "Released to" arrow has been pressed on this visit.
+    // Rust sets this back to 0 when a new release lands on the open item.
+    in-out property <int> editing-release-presses: 0;
 
     // Status banner (kept off-UI for now; transport writes here).
     in-out property <string> server-status: "";

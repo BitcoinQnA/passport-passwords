@@ -24,7 +24,7 @@ pub use engine::{Engine, EngineConfig, ReleasePeer, DEFAULT_IDLE_MS, SESSION_INF
 pub use origin::{origin_match_key, registrable_domain, Origin, OriginError};
 pub use record::{
     local_date, sanitize_display_text, CredentialRecord, LocalDate, ReleaseEvent, ReleaseRowText,
-    release_rows_have_more, release_rows_shown, MAX_RELEASE_HISTORY, MIN_PLAUSIBLE_UNIX_SECS,
+    release_list_should_recollapse, release_rows_have_more, release_rows_shown, MAX_RELEASE_HISTORY, MIN_PLAUSIBLE_UNIX_SECS,
     RELEASE_ROWS_FIRST, RELEASE_ROWS_PER_PRESS,
 };
 pub use session::{Session, SessionError, SessionState};

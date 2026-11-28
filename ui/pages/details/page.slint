@@ -137,11 +137,7 @@ export component DetailsPage inherits Rectangle {
     property <bool> show-reveal-confirm: false;
     property <bool> password-revealed: false;
     property <string> password-value: "";
-    /// Times the "Released to" arrow has been pressed on this visit.
-    property <int> release-presses: 0;
-
     init => {
-        release-presses = 0;
         password-revealed = false;
         password-value = "";
     }
@@ -213,8 +209,8 @@ export component DetailsPage inherits Rectangle {
 
                         if Callbacks.editing-release-history.length > 0: ReleaseHistoryCard {
                             rows: Callbacks.editing-release-history;
-                            shown: Callbacks.release-rows-shown(Callbacks.editing-release-history.length, release-presses);
-                            more => { release-presses += 1; }
+                            shown: Callbacks.release-rows-shown(Callbacks.editing-release-history.length, Callbacks.editing-release-presses);
+                            more => { Callbacks.editing-release-presses += 1; }
                         }
                     }
                 }
