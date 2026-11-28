@@ -5,8 +5,11 @@
 
 use std::sync::{Arc, Mutex};
 
-use slint_keyos_platform::slint::{ComponentHandle, ModelRc, VecModel};
-use vaults_bridge_core::{release_list_should_recollapse, CredentialRecord, ReleaseEvent};
+use slint_keyos_platform::slint::{ComponentHandle, Model, ModelRc, VecModel};
+use vaults_bridge_core::{
+    release_pane_after_press, release_pane_after_refresh, release_pane_on_open, CredentialRecord,
+    ReleaseEvent, ReleasePane,
+};
 use vaults_bridge_keystore::Keystore;
 
 use crate::{local_time, AppWindow, Callbacks, ReleaseRow, StoredCredential};
@@ -62,24 +65,68 @@ impl AppState {
         let editing = cb.get_editing_uuid();
         if editing.is_empty() {
             *self.details_history.lock().unwrap() = (String::new(), Vec::new());
+            apply_release_pane(cb, release_pane_on_open(0));
             return;
         }
-        let Some(rec) = records.iter().find(|r| r.id.to_string() == editing.as_str()) else {
+        let Some(rec) = records
+            .iter()
+            .find(|r| r.id.to_string() == editing.as_str())
+        else {
             return;
         };
         let next = rec.release_history.clone();
-        let recollapse = {
+        let presses = cb.get_editing_release_presses().max(0) as usize;
+        let pane = {
             let mut slot = self.details_history.lock().unwrap();
-            let known = slot.0 == editing.as_str();
-            let should = known && release_list_should_recollapse(&slot.1, &next);
+            // An unseeded cache is treated as "previous unknown" (empty),
+            // which recollapses. opened_details seeds the cache so a
+            // same-history redraw does not fold an expanded list.
+            let previous = if slot.0 == editing.as_str() {
+                slot.1.clone()
+            } else {
+                Vec::new()
+            };
+            let pane = release_pane_after_refresh(&previous, &next, presses);
             *slot = (editing.to_string(), next);
-            should
+            pane
         };
         cb.set_editing_release_history(ModelRc::new(VecModel::from(history_rows(rec))));
-        if recollapse {
-            cb.set_editing_release_presses(0);
-        }
+        apply_release_pane(cb, pane);
     }
+
+    /// Seed the history cache and the pane when the user opens details.
+    pub fn opened_details(&self) {
+        let Some(ui) = self.ui.upgrade() else { return };
+        let cb = ui.global::<Callbacks>();
+        let editing = cb.get_editing_uuid();
+        let ks = self.keystore.lock().unwrap();
+        let Some(rec) = ks
+            .records()
+            .iter()
+            .find(|r| r.id.to_string() == editing.as_str())
+        else {
+            *self.details_history.lock().unwrap() = (String::new(), Vec::new());
+            apply_release_pane(&cb, release_pane_on_open(0));
+            return;
+        };
+        *self.details_history.lock().unwrap() = (editing.to_string(), rec.release_history.clone());
+        cb.set_editing_release_history(ModelRc::new(VecModel::from(history_rows(rec))));
+        apply_release_pane(&cb, release_pane_on_open(rec.release_history.len()));
+    }
+
+    pub fn release_show_more(&self) {
+        let Some(ui) = self.ui.upgrade() else { return };
+        let cb = ui.global::<Callbacks>();
+        let presses = cb.get_editing_release_presses().max(0) as usize;
+        let total = cb.get_editing_release_history().row_count();
+        apply_release_pane(&cb, release_pane_after_press(total, presses));
+    }
+}
+
+fn apply_release_pane(cb: &Callbacks, pane: ReleasePane) {
+    cb.set_editing_release_presses(i32::try_from(pane.presses).unwrap_or(i32::MAX));
+    cb.set_editing_release_shown(i32::try_from(pane.shown).unwrap_or(i32::MAX));
+    cb.set_editing_release_has_more(pane.has_more);
 }
 
 fn matches_search(r: &CredentialRecord, q: &str) -> bool {

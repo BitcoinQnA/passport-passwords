@@ -23,9 +23,10 @@ pub use approval::{ApprovalAction, ApprovalDecision, ApprovalRequest, Approver, 
 pub use engine::{Engine, EngineConfig, ReleasePeer, DEFAULT_IDLE_MS, SESSION_INFO};
 pub use origin::{origin_match_key, registrable_domain, Origin, OriginError};
 pub use record::{
-    local_date, sanitize_display_text, CredentialRecord, LocalDate, ReleaseEvent, ReleaseRowText,
-    release_list_should_recollapse, release_rows_have_more, release_rows_shown, MAX_RELEASE_HISTORY, MIN_PLAUSIBLE_UNIX_SECS,
-    RELEASE_ROWS_FIRST, RELEASE_ROWS_PER_PRESS,
+    local_date, sanitize_display_text, CredentialRecord, LocalDate, ReleaseEvent, ReleasePane,
+    ReleaseRowText, release_list_should_recollapse, release_pane_after_press,
+    release_pane_after_refresh, release_pane_on_open, release_rows_have_more, release_rows_shown,
+    MAX_RELEASE_HISTORY, MIN_PLAUSIBLE_UNIX_SECS, RELEASE_ROWS_FIRST, RELEASE_ROWS_PER_PRESS,
 };
 pub use session::{Session, SessionError, SessionState};
 pub use store::{

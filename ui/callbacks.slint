@@ -33,9 +33,15 @@ export global Callbacks {
     in-out property <string> editing-error-field: "";
     in-out property <string> editing-error: "";
     in-out property <[ReleaseRow]> editing-release-history: [];
-    // Times the "Released to" arrow has been pressed on this visit.
-    // Rust sets this back to 0 when a new release lands on the open item.
+    // Times Show more has been pressed on this visit. Rust owns this, along
+    // with shown / has-more, so a live history change cannot leave them stale.
     in-out property <int> editing-release-presses: 0;
+    in-out property <int> editing-release-shown: 0;
+    in-out property <bool> editing-release-has-more: false;
+    // Called when details opens so Rust can seed the history cache and the pane.
+    callback opened-details();
+    // One press of Show more; Rust updates presses, shown, and has-more together.
+    callback release-show-more();
 
     // Status banner (kept off-UI for now; transport writes here).
     in-out property <string> server-status: "";
@@ -102,8 +108,4 @@ export global Callbacks {
     // Validate fields. Empty string == OK.
     pure callback validate-label(string) -> string;
     pure callback validate-origin(string) -> string;
-
-    // How many "Released to" rows to show: (total rows, expand presses) -> rows.
-    // The rule lives in Rust so it is unit-tested.
-    pure callback release-rows-shown(int, int) -> int;
 }

@@ -81,6 +81,50 @@ pub fn release_list_should_recollapse(previous: &[ReleaseEvent], next: &[Release
     previous.len() != next.len() || previous.last() != next.last()
 }
 
+/// What the details page should show for "Released to" after a refresh or open.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ReleasePane {
+    pub shown: usize,
+    pub has_more: bool,
+    pub presses: usize,
+}
+
+fn pane_for(total: usize, presses: usize) -> ReleasePane {
+    let shown = release_rows_shown(total, presses);
+    ReleasePane {
+        shown,
+        has_more: shown < total,
+        presses,
+    }
+}
+
+/// Opening the details page: newest row only, Show more iff anything is hidden.
+pub fn release_pane_on_open(total: usize) -> ReleasePane {
+    pane_for(total, 0)
+}
+
+/// After a vault refresh while details is already open. A history change
+/// recollapses to the newest row; a redraw of the same list keeps the current
+/// expand presses. `shown` and `has_more` are always derived together so
+/// hidden rows and Show more cannot get out of step.
+pub fn release_pane_after_refresh(
+    previous: &[ReleaseEvent],
+    next: &[ReleaseEvent],
+    presses: usize,
+) -> ReleasePane {
+    let presses = if release_list_should_recollapse(previous, next) {
+        0
+    } else {
+        presses
+    };
+    pane_for(next.len(), presses)
+}
+
+/// One press of Show more, keeping shown and has_more in step.
+pub fn release_pane_after_press(total: usize, presses: usize) -> ReleasePane {
+    pane_for(total, presses.saturating_add(1))
+}
+
 /// Clocks earlier than this (1 Jan 2025) have not been set yet, same floor as
 /// the status bar. A history entry stamped before it has no usable date.
 pub const MIN_PLAUSIBLE_UNIX_SECS: u64 = 1_735_693_200;
@@ -671,5 +715,135 @@ mod tests {
         // A later release that keeps the count but changes the newest row.
         let renamed = vec![ev(1_000, "Grok Bot"), ev(2_000, "Forge box")];
         assert!(release_list_should_recollapse(&two, &renamed));
+    }
+
+    fn ev(at: u64, surface: &str) -> ReleaseEvent {
+        ReleaseEvent {
+            surface: surface.into(),
+            peer_name: "Grok Bot".into(),
+            peer_qid: "abc".into(),
+            released_at: at,
+        }
+    }
+
+    /// Closest-to-UI fixture for rh7: details was open, the list was expanded
+    /// to 2 of 2 (one press, no arrow), then a third release landed. The pane
+    /// must go back to the newest row and Show more must appear, otherwise the
+    /// oldest row is hidden with no way to reach it.
+    #[test]
+    fn rh7_expanded_list_recollapses_when_a_new_release_lands() {
+        let previous = vec![
+            ev(1_000, "Passwords extension"),
+            ev(2_000, "Chrome extension"),
+        ];
+        let mut next = previous.clone();
+        next.push(ev(3_000, "Chrome extension"));
+        let pane = release_pane_after_refresh(&previous, &next, 1);
+        assert_eq!(
+            pane,
+            ReleasePane {
+                shown: 1,
+                has_more: true,
+                presses: 0
+            }
+        );
+        assert_eq!(pane.has_more, pane.shown < next.len());
+    }
+
+    #[test]
+    fn a_redraw_of_the_same_history_keeps_an_expanded_list() {
+        let two = vec![
+            ev(1_000, "Passwords extension"),
+            ev(2_000, "Chrome extension"),
+        ];
+        let pane = release_pane_after_refresh(&two, &two, 1);
+        assert_eq!(
+            pane,
+            ReleasePane {
+                shown: 2,
+                has_more: false,
+                presses: 1
+            }
+        );
+        assert_eq!(pane.has_more, pane.shown < two.len());
+    }
+
+    #[test]
+    fn unseeded_cache_still_recollapses_rather_than_hiding_rows_without_an_arrow() {
+        let next = vec![
+            ev(1_000, "Passwords extension"),
+            ev(2_000, "Chrome extension"),
+            ev(3_000, "Chrome extension"),
+        ];
+        let pane = release_pane_after_refresh(&[], &next, 1);
+        assert_eq!(
+            pane,
+            ReleasePane {
+                shown: 1,
+                has_more: true,
+                presses: 0
+            }
+        );
+        assert_eq!(pane.has_more, pane.shown < next.len());
+    }
+
+    #[test]
+    fn opening_details_shows_the_newest_row_only() {
+        assert_eq!(
+            release_pane_on_open(0),
+            ReleasePane {
+                shown: 0,
+                has_more: false,
+                presses: 0
+            }
+        );
+        assert_eq!(
+            release_pane_on_open(1),
+            ReleasePane {
+                shown: 1,
+                has_more: false,
+                presses: 0
+            }
+        );
+        assert_eq!(
+            release_pane_on_open(3),
+            ReleasePane {
+                shown: 1,
+                has_more: true,
+                presses: 0
+            }
+        );
+    }
+
+    #[test]
+    fn show_more_and_has_more_stay_in_step_after_each_press() {
+        let pane = release_pane_after_press(3, 0);
+        assert_eq!(
+            pane,
+            ReleasePane {
+                shown: 3,
+                has_more: false,
+                presses: 1
+            }
+        );
+        let pane = release_pane_after_press(7, 0);
+        assert_eq!(
+            pane,
+            ReleasePane {
+                shown: 6,
+                has_more: true,
+                presses: 1
+            }
+        );
+        let pane = release_pane_after_press(7, 1);
+        assert_eq!(
+            pane,
+            ReleasePane {
+                shown: 7,
+                has_more: false,
+                presses: 2
+            }
+        );
+        assert_eq!(pane.has_more, pane.shown < 7);
     }
 }

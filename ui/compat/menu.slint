@@ -1,0 +1,135 @@
+// SPDX-FileCopyrightText: 2026 Foundation Devices, Inc. <hello@foundation.xyz>
+// SPDX-License-Identifier: GPL-3.0-or-later
+//
+// Ports of first-party KeyOS widgets (ui/ui/widgets/settings-menu.slint,
+// os/gui-app-settings InfoRow, ui/ui/widgets/show-hide.slint) onto this
+// app's Palette / Size / text tokens.
+
+import { Palette, Size, Images } from "theme.slint";
+import { HeadingSm, TextSm, TextMd } from "widgets.slint";
+
+export component HLine inherits Rectangle {
+    height: 1px;
+    background: Palette.border-tertiary;
+}
+
+/// Title above a card, same role as KeyOS TitledItem.
+export component TitledItem inherits VerticalLayout {
+    in property <string> title;
+
+    spacing: Size.sz2;
+    alignment: start;
+    if title != "": HorizontalLayout {
+        alignment: start;
+        padding-left: Size.sz4;
+        TextSm {
+            text: title;
+            color: Palette.content-tertiary;
+        }
+    }
+    @children
+}
+
+export component MenuSectionContainer inherits Rectangle {
+    background: Palette.background-primary-alternative;
+    border-width: Size.sz0_25;
+    border-color: Palette.border-tertiary;
+    border-radius: Size.sz6;
+    clip: true;
+    @children
+}
+
+export component MenuSectionLayout inherits VerticalLayout {
+    alignment: start;
+    @children
+}
+
+/// Titled card used throughout Settings (MenuSection).
+export component MenuSection inherits TitledItem {
+    MenuSectionContainer {
+        @children
+    }
+}
+
+/// Settings InfoRow, with optional second lines so a Released-to entry can
+/// be date/year over surface/peer in the same paddings and colours.
+export component InfoRow inherits Rectangle {
+    in property <string> label;
+    in property <string> label-sub: "";
+    in property <string> value;
+    in property <string> value-sub: "";
+
+    HorizontalLayout {
+        alignment: space-between;
+        padding-left: Size.sz4;
+        padding-right: Size.sz4;
+        padding-top: Size.sz4;
+        padding-bottom: Size.sz4;
+        spacing: Size.sz4;
+
+        VerticalLayout {
+            alignment: center;
+            spacing: Size.sz1;
+            width: Size.sz16 + Size.sz9;
+            TextSm {
+                text: root.label;
+                color: Palette.content-primary;
+                wrap: no-wrap;
+                overflow: elide;
+            }
+            if root.label-sub != "": TextSm {
+                text: root.label-sub;
+                color: Palette.content-tertiary;
+                wrap: no-wrap;
+                overflow: elide;
+            }
+        }
+
+        VerticalLayout {
+            alignment: center;
+            spacing: Size.sz1;
+            horizontal-stretch: 1;
+            TextSm {
+                text: root.value;
+                color: Palette.content-primary;
+                wrap: no-wrap;
+                overflow: elide;
+            }
+            if root.value-sub != "": TextSm {
+                text: root.value-sub;
+                color: Palette.content-tertiary;
+                wrap: no-wrap;
+                overflow: elide;
+            }
+        }
+    }
+}
+
+/// ShowHide's official look (link-coloured label + chevron-down) used as
+/// "load the next batch", not as a toggle-all.
+export component ShowMore inherits Rectangle {
+    in property <string> text: "Show more";
+    callback clicked();
+
+    height: Size.sz14;
+
+    HorizontalLayout {
+        alignment: center;
+        spacing: Size.sz3;
+        TextMd {
+            text: root.text;
+            color: Palette.content-link;
+        }
+        Image {
+            width: Size.sz6;
+            height: Size.sz6;
+            // Same affordance as official ShowHide (ui/ui/widgets/show-hide.slint).
+            source: Images.icon("chevron-down", Size.sz6);
+            colorize: Palette.content-link;
+        }
+    }
+
+    TouchArea {
+        clicked => { root.clicked(); }
+    }
+}

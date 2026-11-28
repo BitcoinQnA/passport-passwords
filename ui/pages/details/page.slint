@@ -1,137 +1,13 @@
 // SPDX-FileCopyrightText: 2026 Foundation Devices, Inc. <hello@foundation.xyz>
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { AppHeader, Button, ButtonSection, CardColorPicker, IconButton, HeadingSm, TextSm,
+import { AppHeader, Button, ButtonSection, CardColorPicker, IconButton, TextSm,
          BasePage, PageBody, ContentSection, ScrollBody, ConfirmationModal } from "../../compat/widgets.slint";
+import { MenuSection, MenuSectionLayout, InfoRow, HLine, ShowMore } from "../../compat/menu.slint";
 import { Importance, Palette, Size } from "../../compat/theme.slint";
 import { Callbacks } from "../../callbacks.slint";
 import { ReleaseRow } from "../../types.slint";
 import { Navigate } from "../../gen/navigate.slint";
-
-component FieldBlock inherits Rectangle {
-    in property <string> label;
-    in property <string> value;
-    in property <bool> sensitive;
-    in property <bool> blurred;
-    callback action-clicked();
-    in property <string> action-label;
-
-    background: Palette.background-primary-alternative;
-    border-radius: Size.sz3;
-
-    VerticalLayout {
-        padding: Size.sz4;
-        spacing: Size.sz1;
-
-        HorizontalLayout {
-            alignment: space-between;
-            HeadingSm {
-                text: label;
-                color: Palette.content-secondary;
-            }
-            if sensitive && !blurred: TextSm {
-                text: "sensitive";
-                color: Palette.content-negative;
-            }
-        }
-
-        if blurred: TextSm {
-            text: "••• hidden •••";
-            color: Palette.content-tertiary;
-        }
-
-        if !blurred: TextSm {
-            text: value;
-            color: Palette.content-primary;
-            wrap: char-wrap;
-        }
-
-        if action-label != "": HorizontalLayout {
-            alignment: start;
-            padding-top: Size.sz2;
-            Button {
-                label: action-label;
-                importance: sensitive ? Importance.negative : Importance.secondary;
-                clicked => { action-clicked(); }
-            }
-        }
-    }
-}
-
-/// "Released to": one row per approved release, newest first. Two columns,
-/// two lines each: date over year, app over the device it came through.
-component ReleaseHistoryCard inherits Rectangle {
-    in property <[ReleaseRow]> rows;
-    /// How many of `rows` to show, newest first.
-    in property <int> shown: 1;
-    callback more();
-
-    background: Palette.background-primary-alternative;
-    border-radius: Size.sz3;
-
-    VerticalLayout {
-        padding: Size.sz4;
-        // Spacing is carried by each row so hidden rows leave no gap.
-        spacing: 0px;
-
-        HeadingSm {
-            text: "Released to";
-            color: Palette.content-secondary;
-        }
-
-        for row[index] in rows: VerticalLayout {
-            if index < root.shown: HorizontalLayout {
-                padding-top: Size.sz3;
-                spacing: Size.sz4;
-
-                VerticalLayout {
-                    width: Size.sz16 + Size.sz9;
-                    TextSm {
-                        text: row.date;
-                        color: Palette.content-primary;
-                        wrap: no-wrap;
-                        overflow: elide;
-                    }
-                    TextSm {
-                        text: row.year;
-                        color: Palette.content-tertiary;
-                        wrap: no-wrap;
-                        overflow: elide;
-                    }
-                }
-
-                VerticalLayout {
-                    horizontal-stretch: 1;
-                    TextSm {
-                        text: row.surface;
-                        color: Palette.content-primary;
-                        wrap: no-wrap;
-                        overflow: elide;
-                    }
-                    TextSm {
-                        text: row.peer;
-                        color: Palette.content-tertiary;
-                        wrap: no-wrap;
-                        overflow: elide;
-                    }
-                }
-            }
-        }
-
-        // Only while rows remain hidden: one press reveals the next batch.
-        if root.shown < rows.length: HorizontalLayout {
-            alignment: center;
-            padding-top: Size.sz2;
-            IconButton {
-                icon: "chevron-down";
-                size: Size.sz10;
-                icon-size: Size.sz8;
-                importance: Importance.normal;
-                clicked => { root.more(); }
-            }
-        }
-    }
-}
 
 export component DetailsPage inherits Rectangle {
     property <bool> show-reveal-confirm: false;
@@ -144,6 +20,9 @@ export component DetailsPage inherits Rectangle {
 
     BasePage {
         VerticalLayout {
+            // Standard AppHeader back, same as the rest of this app and
+            // other KeyOS pages. Kept outside ScrollBody so the chevron
+            // stays visible while Released to is expanded and scrolled.
             AppHeader {
                 title: Callbacks.editing-label != "" ? Callbacks.editing-label : "Password";
                 title-color: Palette.content-primary;
@@ -166,51 +45,111 @@ export component DetailsPage inherits Rectangle {
                     ContentSection {
                         spacing: Size.sz4;
 
-                        FieldBlock {
-                            label: "Website";
-                            value: Callbacks.editing-origin;
-                            sensitive: false;
-                            blurred: false;
-                            action-label: "";
-                        }
-
-                        FieldBlock {
-                            label: "Username";
-                            value: Callbacks.editing-username;
-                            sensitive: false;
-                            blurred: false;
-                            action-label: "";
-                        }
-
-                        FieldBlock {
-                            label: "Password";
-                            value: password-value;
-                            sensitive: true;
-                            blurred: !password-revealed;
-                            action-label: password-revealed ? "Hide" : "Reveal password";
-                            action-clicked => {
-                                if (password-revealed) {
-                                    password-revealed = false;
-                                    password-value = "";
-                                } else {
-                                    show-reveal-confirm = true;
+                        MenuSection {
+                            title: "Website";
+                            MenuSectionLayout {
+                                HorizontalLayout {
+                                    padding: Size.sz4;
+                                    TextSm {
+                                        text: Callbacks.editing-origin;
+                                        color: Palette.content-primary;
+                                        wrap: word-wrap;
+                                    }
                                 }
                             }
                         }
 
-                        CardColorPicker {
-                            selected-index: Callbacks.editing-color;
-                            title: "Color";
-                            changed(index) => {
-                                Callbacks.editing-color = index;
-                                Callbacks.change-color(Callbacks.editing-uuid, index);
+                        MenuSection {
+                            title: "Username";
+                            MenuSectionLayout {
+                                HorizontalLayout {
+                                    padding: Size.sz4;
+                                    TextSm {
+                                        text: Callbacks.editing-username;
+                                        color: Palette.content-primary;
+                                        wrap: no-wrap;
+                                        overflow: elide;
+                                    }
+                                }
                             }
                         }
 
-                        if Callbacks.editing-release-history.length > 0: ReleaseHistoryCard {
-                            rows: Callbacks.editing-release-history;
-                            shown: Callbacks.release-rows-shown(Callbacks.editing-release-history.length, Callbacks.editing-release-presses);
-                            more => { Callbacks.editing-release-presses += 1; }
+                        MenuSection {
+                            title: "Password";
+                            MenuSectionLayout {
+                                VerticalLayout {
+                                    padding: Size.sz4;
+                                    spacing: Size.sz3;
+                                    HorizontalLayout {
+                                        alignment: space-between;
+                                        if password-revealed: TextSm {
+                                            text: "sensitive";
+                                            color: Palette.content-negative;
+                                        }
+                                    }
+                                    if !password-revealed: TextSm {
+                                        text: "••• hidden •••";
+                                        color: Palette.content-tertiary;
+                                    }
+                                    if password-revealed: TextSm {
+                                        text: password-value;
+                                        color: Palette.content-primary;
+                                        wrap: char-wrap;
+                                    }
+                                    HorizontalLayout {
+                                        alignment: start;
+                                        Button {
+                                            label: password-revealed ? "Hide" : "Reveal password";
+                                            importance: password-revealed ? Importance.secondary : Importance.negative;
+                                            clicked => {
+                                                if (password-revealed) {
+                                                    password-revealed = false;
+                                                    password-value = "";
+                                                } else {
+                                                    show-reveal-confirm = true;
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        MenuSection {
+                            title: "Color";
+                            MenuSectionLayout {
+                                VerticalLayout {
+                                    padding: Size.sz4;
+                                    CardColorPicker {
+                                        selected-index: Callbacks.editing-color;
+                                        title: "";
+                                        changed(index) => {
+                                            Callbacks.editing-color = index;
+                                            Callbacks.change-color(Callbacks.editing-uuid, index);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        if Callbacks.editing-release-history.length > 0: MenuSection {
+                            title: "Released to";
+                            MenuSectionLayout {
+                                for row[index] in Callbacks.editing-release-history: VerticalLayout {
+                                    if index < Callbacks.editing-release-shown: VerticalLayout {
+                                        if index > 0: HLine { }
+                                        InfoRow {
+                                            label: row.date;
+                                            label-sub: row.year;
+                                            value: row.surface;
+                                            value-sub: row.peer;
+                                        }
+                                    }
+                                }
+                                if Callbacks.editing-release-has-more: ShowMore {
+                                    clicked => { Callbacks.release-show-more(); }
+                                }
+                            }
                         }
                     }
                 }

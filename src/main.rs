@@ -143,6 +143,18 @@ fn app_main(_cx: AppContext, ui: AppWindow) {
             state.lock().unwrap().refresh_credentials();
         });
     }
+    {
+        let state = state.clone();
+        ui.global::<Callbacks>().on_opened_details(move || {
+            state.lock().unwrap().opened_details();
+        });
+    }
+    {
+        let state = state.clone();
+        ui.global::<Callbacks>().on_release_show_more(move || {
+            state.lock().unwrap().release_show_more();
+        });
+    }
 
     // Validators
     ui.global::<Callbacks>()
@@ -150,14 +162,6 @@ fn app_main(_cx: AppContext, ui: AppWindow) {
             _ if s.as_str().len() > MAX_ORIGIN_BYTES => "Origin too long".into(),
             Ok(_) => SharedString::new(),
             Err(e) => format!("{e}").into(),
-        });
-    ui.global::<Callbacks>()
-        .on_release_rows_shown(|total: i32, presses: i32| {
-            let shown = vaults_bridge_core::release_rows_shown(
-                total.max(0) as usize,
-                presses.max(0) as usize,
-            );
-            i32::try_from(shown).unwrap_or(i32::MAX)
         });
     ui.global::<Callbacks>()
         .on_validate_label(|s: SharedString| {
