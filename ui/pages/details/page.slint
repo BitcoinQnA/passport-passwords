@@ -119,6 +119,27 @@ export component DetailsPage inherits Rectangle {
                         }
                     }
 
+                    if Callbacks.editing-release-history.length > 0: Rectangle {
+                        background: Palette.background-primary-alternative;
+                        border-radius: Size.sz3;
+
+                        VerticalLayout {
+                            padding: Size.sz4;
+                            spacing: Size.sz1;
+
+                            HeadingSm {
+                                text: "Released to";
+                                color: Palette.content-secondary;
+                            }
+
+                            for line in Callbacks.editing-release-history: TextSm {
+                                text: line;
+                                color: Palette.content-primary;
+                                wrap: word-wrap;
+                            }
+                        }
+                    }
+
                     CardColorPicker {
                         selected-index: Callbacks.editing-color;
                         title: "Color";

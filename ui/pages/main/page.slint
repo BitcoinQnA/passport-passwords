@@ -113,6 +113,7 @@ export component MainPage inherits Rectangle {
         Callbacks.editing-archived = entry.archived;
         Callbacks.editing-error = "";
         Callbacks.editing-error-field = "";
+        Callbacks.editing-release-history = [];
         Navigate.edit({ version: version }, { });
     }
 
@@ -126,6 +127,7 @@ export component MainPage inherits Rectangle {
         Callbacks.editing-archived = entry.archived;
         Callbacks.editing-error = "";
         Callbacks.editing-error-field = "";
+        Callbacks.editing-release-history = entry.release-history;
         Navigate.details({ });
     }
 

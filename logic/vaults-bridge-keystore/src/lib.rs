@@ -20,6 +20,7 @@ use sha2::Sha256;
 use thiserror::Error;
 use uuid::Uuid;
 use vaults_bridge_core::{
+    record::{ReleaseEvent, MAX_RELEASE_HISTORY},
     store::{CredentialMatch, CredentialSummary, ExistingCredential, StoreError},
     CredentialRecord, CredentialStore,
 };
@@ -520,6 +521,27 @@ impl CredentialStore for Keystore {
         self.records.push(rec);
         Ok(())
     }
+
+    fn record_release(
+        &mut self,
+        origin: &str,
+        username: &str,
+        event: ReleaseEvent,
+    ) -> Result<(), StoreError> {
+        if let Some(rec) = self
+            .records
+            .iter_mut()
+            .find(|r| !r.archived && r.origin == origin && r.username == username)
+        {
+            rec.last_used_at = event.released_at;
+            rec.release_history.push(event);
+            let extra = rec.release_history.len().saturating_sub(MAX_RELEASE_HISTORY);
+            if extra > 0 {
+                rec.release_history.drain(0..extra);
+            }
+        }
+        Ok(())
+    }
 }
 
 impl Drop for Keystore {
@@ -899,5 +921,38 @@ mod tests {
         assert_eq!(kept.records()[1].password, "restored-password");
         assert_eq!(kept.records()[1].label, "Backup (restored)");
         assert_ne!(kept.records()[0].id, kept.records()[1].id);
+    }
+
+    #[test]
+    fn record_release_appends_caps_and_survives_seal() {
+        let mut ks = Keystore::new(b"test-master");
+        ks.add(CredentialRecord::new(
+            "https://example.com".into(),
+            "alice".into(),
+            "secret".into(),
+        ));
+        for i in 0..(MAX_RELEASE_HISTORY + 3) {
+            ks.record_release(
+                "https://example.com",
+                "alice",
+                ReleaseEvent {
+                    surface: "Passwords extension".into(),
+                    peer_name: "Grok Bot".into(),
+                    peer_qid: "abc".into(),
+                    released_at: 1_000 + i as u64,
+                },
+            )
+            .unwrap();
+        }
+        let rec = &ks.records()[0];
+        assert_eq!(rec.release_history.len(), MAX_RELEASE_HISTORY);
+        assert_eq!(rec.release_history[0].released_at, 1_003);
+        assert_eq!(rec.last_used_at, 1_000 + (MAX_RELEASE_HISTORY + 2) as u64);
+        let blob = ks.seal().unwrap();
+        let opened = Keystore::open(b"test-master", &blob).unwrap();
+        assert_eq!(opened.records()[0].release_history.len(), MAX_RELEASE_HISTORY);
+        assert_eq!(opened.records()[0].release_history[0].peer_name, "Grok Bot");
+        // password must still be present and is not part of history
+        assert_eq!(opened.records()[0].password, "secret");
     }
 }

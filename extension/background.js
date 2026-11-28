@@ -359,6 +359,7 @@ async function fillActiveTab(usernameHint) {
   await ensureSession();
   const params = {
     origin,
+    client_name: "Passwords extension",
     request_nonce: ++requestNonce,
   };
   if (usernameHint) params.username_hint = usernameHint;
@@ -477,6 +478,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         await ensureSession();
         const params = {
           origin: tabOrigin,
+          client_name: "Passwords extension",
           request_nonce: ++requestNonce,
         };
         if (username) params.username_hint = username;

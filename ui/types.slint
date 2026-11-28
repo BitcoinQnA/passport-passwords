@@ -15,6 +15,9 @@ export struct StoredCredential {
     /// Pre-formatted human "5 minutes ago" / "Today 14:32" string. Empty
     /// in the main-list view; only the details page populates this.
     last-used: string,
+    /// Newest first, already formatted as
+    /// "Passwords extension on Grok Bot, 27 Nov 18:15".
+    release-history: [string],
 }
 
 @rust-attr(derive(serde::Serialize, serde::Deserialize))

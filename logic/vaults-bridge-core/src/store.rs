@@ -3,6 +3,8 @@
 
 //! Trait the engine consumes to look up + write credentials.
 
+use crate::record::ReleaseEvent;
+
 #[derive(Clone)]
 pub struct CredentialMatch {
     pub username: String,
@@ -67,6 +69,15 @@ pub trait CredentialStore: Send + Sync {
         username: String,
         password: String,
         label: Option<String>,
+    ) -> Result<(), StoreError>;
+
+    /// Append a successful release to the matching record and bump
+    /// `last_used_at`. No-ops if no record matches.
+    fn record_release(
+        &mut self,
+        origin: &str,
+        username: &str,
+        event: ReleaseEvent,
     ) -> Result<(), StoreError>;
 }
 

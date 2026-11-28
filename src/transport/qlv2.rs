@@ -12,7 +12,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use ql_rpc::request::{RequestHandlerLocal, Response};
 use slint_keyos_platform::{spawn_local, worker, TaskHandle};
-use vaults_bridge_core::engine::Engine;
+use vaults_bridge_core::engine::{Engine, ReleasePeer};
 use vaults_bridge_keystore::Keystore;
 use vaults_bridge_protocol::{ErrorCode, ErrorPayload, Request};
 use vaults_bridge_ql::{BridgeFrame, RequestBridgeFrame, MAX_FRAME_BYTES};
@@ -45,21 +45,35 @@ struct Routes {
 impl RequestHandlerLocal<RequestBridgeFrame, RpcStream> for Routes {
     async fn handle(
         self,
-        _context: ql_rpc::Context,
+        context: ql_rpc::Context,
         request: BridgeFrame,
         response: Response<BridgeFrame, RpcWriter>,
     ) {
-        let json = handle_json(&self.engine, &request.json).await;
+        let peer = lookup_release_peer(context.qid);
+        let json = handle_json(&self.engine, &request.json, Some(peer)).await;
         if let Err(error) = response.respond(BridgeFrame { json }).await {
             log::warn!("QL bridge response failed: {error:?}");
         }
     }
 }
 
-async fn handle_json(engine: &Engine<Keystore>, json: &str) -> String {
+fn lookup_release_peer(qid: ql::QID) -> ReleasePeer {
+    let qid_str = qid.to_string();
+    let name = QlApi::default()
+        .status()
+        .ok()
+        .and_then(|status| {
+            status.peers.into_iter().find(|peer| peer.qid == qid).map(|peer| peer.name)
+        })
+        .filter(|name| !name.trim().is_empty())
+        .unwrap_or_else(|| "Unknown peer".into());
+    ReleasePeer { name, qid: qid_str }
+}
+
+async fn handle_json(engine: &Engine<Keystore>, json: &str, peer: Option<ReleasePeer>) -> String {
     let parsed = if json.len() > MAX_FRAME_BYTES { None } else { serde_json::from_str::<Request>(json).ok() };
     let response = match parsed {
-        Some(request) => engine.handle(request, now_ms()).await,
+        Some(request) => engine.handle_from(request, now_ms(), peer).await,
         None => vaults_bridge_protocol::Response::Err {
             id: "0".into(),
             error: ErrorPayload { code: ErrorCode::InvalidRequest as i32, message: "invalid request".into() },

@@ -5,7 +5,7 @@
 
 use std::sync::{Arc, Mutex};
 
-use slint_keyos_platform::slint::{ComponentHandle, ModelRc, VecModel};
+use slint_keyos_platform::slint::{ComponentHandle, ModelRc, SharedString, VecModel};
 use vaults_bridge_core::CredentialRecord;
 use vaults_bridge_keystore::Keystore;
 
@@ -70,6 +70,13 @@ fn record_to_view(r: &CredentialRecord) -> StoredCredential {
         color: r.color,
         archived: r.archived,
         last_used: format_last_used(r.last_used_at).into(),
+        release_history: ModelRc::new(VecModel::from(
+            r.release_history
+                .iter()
+                .rev()
+                .map(|ev| SharedString::from(ev.display_line()))
+                .collect::<Vec<_>>(),
+        )),
     }
 }
 

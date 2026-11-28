@@ -59,7 +59,7 @@ Response = { "id": "...", "result": { ... } }
 | `establish_session` | `{ "host_pubkey": "<hex>" }` | `{ "device_pubkey": "<hex>" }` |
 | `list_origins` | - | `{ "origins": ["https://..."] }` |
 | `list_credentials` | `{ "origin": "<strict>" }` | `{ "credentials": [{ "username": "...", "label": "...", "last_used_at": 0 }] }` |
-| `release_credential` | `{ "origin": "<strict>", "username_hint": "<opt>", "request_nonce": <u64> }` | `{ "username": "...", "password_sealed": "<hex>" }` |
+| `release_credential` | `{ "origin": "<strict>", "username_hint": "<opt>", "client_name": "<opt>", "request_nonce": <u64> }` | `{ "username": "...", "password_sealed": "<hex>" }` |
 | `store_credential` | `{ "origin": "<strict>", "username": "...", "label": "<opt>", "password_sealed": "<hex>", "request_nonce": <u64> }` | `{ "action": "saved" \| "updated" \| "restored_and_updated" }` |
 | `generate_password` | `{ "origin": "<strict>", "username": "...", "label": "<opt>", "length": "<opt>", "charset": "<opt>", "request_nonce": <u64> }` | `{ "password_sealed": "<hex>", "action": "saved" \| "updated" \| "restored_and_updated" }` |
 | `cancel` | - | `{}` |
