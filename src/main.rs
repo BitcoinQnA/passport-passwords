@@ -3,6 +3,7 @@
 
 mod backup_flow;
 mod import_flow;
+mod local_time;
 mod master_key;
 mod persist;
 mod state;
@@ -42,6 +43,7 @@ use crate::{
 
 app_ui2!("Passwords");
 
+#[cfg(not(target_os = "xous"))]
 const WS_BIND: &str = "127.0.0.1:9876";
 const APPROVAL_TIMEOUT: Duration = Duration::from_secs(60);
 
@@ -88,6 +90,7 @@ fn app_main(_cx: AppContext, ui: AppWindow) {
     drop(master);
 
     let state = Arc::new(Mutex::new(AppState::new(keystore.clone(), ui.as_weak())));
+    local_time::init(state.clone());
     state.lock().unwrap().refresh_credentials();
 
     // Approval slot: drained on user tap.
@@ -138,6 +141,18 @@ fn app_main(_cx: AppContext, ui: AppWindow) {
         let state = state.clone();
         ui.global::<Callbacks>().on_refresh_list(move || {
             state.lock().unwrap().refresh_credentials();
+        });
+    }
+    {
+        let state = state.clone();
+        ui.global::<Callbacks>().on_opened_details(move || {
+            state.lock().unwrap().opened_details();
+        });
+    }
+    {
+        let state = state.clone();
+        ui.global::<Callbacks>().on_release_show_more(move || {
+            state.lock().unwrap().release_show_more();
         });
     }
 
@@ -553,12 +568,17 @@ fn app_main(_cx: AppContext, ui: AppWindow) {
         on_write,
     ));
 
-    let engine_for_server = engine.clone();
-    let weak_for_status = ui.as_weak();
-    thread::Builder::new()
-        .name("passwords-transport".into())
-        .spawn(move || run_transport(engine_for_server, weak_for_status))
-        .expect("spawn transport thread");
+    #[cfg(not(target_os = "xous"))]
+    {
+        let engine_for_server = engine.clone();
+        let weak_for_status = ui.as_weak();
+        thread::Builder::new()
+            .name("passwords-transport".into())
+            .spawn(move || run_transport(engine_for_server, weak_for_status))
+            .expect("spawn transport thread");
+    }
+    #[cfg(target_os = "xous")]
+    let _qlv2_route = transport::start_qlv2(engine.clone());
 
     // Status banner poll
     let weak_for_banner = ui.as_weak();
@@ -612,23 +632,6 @@ fn run_transport(
             });
         }
     });
-}
-
-#[cfg(target_os = "xous")]
-fn run_transport(
-    engine: Arc<Engine<Keystore>>,
-    weak: slint_keyos_platform::slint::Weak<AppWindow>,
-) {
-    use slint_keyos_platform::futures_lite::future::block_on;
-    if let Err(e) = block_on(transport::serve(engine, WS_BIND)) {
-        let msg = format!("transport error: {e}");
-        log::error!("{msg}");
-        let _ = slint_keyos_platform::slint::invoke_from_event_loop(move || {
-            if let Some(ui) = weak.upgrade() {
-                ui.global::<Callbacks>().set_server_status(msg.into());
-            }
-        });
-    }
 }
 
 struct SlintApprover {

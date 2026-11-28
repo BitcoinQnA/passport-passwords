@@ -81,6 +81,11 @@ pub struct ReleaseCredentialParams {
     pub origin: String,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub username_hint: Option<String>,
+    /// Client/app name the requester reports, e.g. "Chrome extension".
+    /// Optional so older clients still work. The device records this as the
+    /// surface; it does not trust it for the paired peer's identity.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub client_name: Option<String>,
     pub request_nonce: u64,
 }
 
@@ -239,12 +244,27 @@ mod tests {
             method: Method::ReleaseCredential(ReleaseCredentialParams {
                 origin: "https://github.com".into(),
                 username_hint: Some("qna@foundation.xyz".into()),
+                client_name: Some("Chrome extension".into()),
                 request_nonce: 42,
             }),
         };
         let s = serde_json::to_string(&req).unwrap();
         let back: Request = serde_json::from_str(&s).unwrap();
         assert_eq!(req, back);
+    }
+
+    #[test]
+    fn old_release_without_client_name_still_parses() {
+        let s = r#"{"id":"abc","method":"release_credential","params":{"origin":"https://github.com","request_nonce":42}}"#;
+        let back: Request = serde_json::from_str(s).unwrap();
+        match back.method {
+            Method::ReleaseCredential(p) => {
+                assert_eq!(p.origin, "https://github.com");
+                assert_eq!(p.request_nonce, 42);
+                assert_eq!(p.client_name, None);
+            }
+            other => panic!("unexpected {other:?}"),
+        }
     }
 
     #[test]

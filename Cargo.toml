@@ -9,7 +9,7 @@ authors = ["Foundation Devices, Inc. <hello@foundation.xyz>"]
 license = "GPL-3.0-or-later"
 
 [workspace]
-exclude = [".foundation-sdk", "logic"]
+exclude = [".foundation-sdk", "logic", "ql-routes", "host-bridge"]
 
 [dependencies]
 # KeyOS plumbing. The Foundation CLI creates the project-local .foundation-sdk
@@ -24,15 +24,16 @@ slint-keyos-platform = { path = ".foundation-sdk/current/lib/keyos/slint-keyos-p
 foundation-themes = { path = ".foundation-sdk/current/lib/keyos/sdk/crates/foundation-themes" }
 file-backed = { path = ".foundation-sdk/current/lib/keyos/utils/file-backed" }
 fs = { path = ".foundation-sdk/current/lib/keyos/api/fs" }
+nav-file-browser = { path = ".foundation-sdk/current/lib/keyos/api/navigation/file-browser" }
 
 # Cross-target utilities
 async-trait = "0.1"
 anyhow = "1"
 hex = "0.4"
+# Same jiff the KeyOS settings API hands its TimeZone out as.
+jiff = { version = "0.2.5", default-features = false, features = ["std"] }
 oneshot = "0.1"
 serde_json = "1"
-# Force transitive random users onto KeyOS' Xous-aware getrandom fork.
-getrandom = "=0.2.10"
 # Keep this aligned with KeyOS' lockfile. simd-adler32 0.3.9 uses ARM NEON
 # intrinsics that are unstable with the current armv7a-unknown-xous-elf toolchain.
 simd-adler32 = "=0.3.7"
@@ -56,12 +57,18 @@ dirs = "5"
 
 [target.'cfg(target_os = "xous")'.dependencies]
 xous = { path = ".foundation-sdk/current/lib/keyos/xous/xous-rs" }
+# QLv2 route for the browser bridge (see ql-routes/ and host-bridge/)
+ql = { path = ".foundation-sdk/current/lib/keyos/api/ql", features = ["worker"] }
+ql-rpc = { git = "https://github.com/Foundation-Devices/quantum-link.git", rev = "f4608ebc4c551a2dffdf57581a9d687512929fa0" }
+vaults-bridge-ql = { path = "ql-routes" }
 
 [build-dependencies]
 slint-keyos-platform-build = { path = ".foundation-sdk/current/lib/keyos/slint-keyos-platform/build", default-features = false }
 
 [patch.crates-io]
-getrandom = { path = ".foundation-sdk/current/lib/keyos/imports/getrandom" }
+getrandom-0-2 = { package = "getrandom", path = ".foundation-sdk/current/lib/keyos/imports/getrandom/0.2" }
+getrandom-0-3 = { package = "getrandom", path = ".foundation-sdk/current/lib/keyos/imports/getrandom/0.3" }
+getrandom-0-4 = { package = "getrandom", path = ".foundation-sdk/current/lib/keyos/imports/getrandom/0.4" }
 
 [profile.dev]
 opt-level = 2

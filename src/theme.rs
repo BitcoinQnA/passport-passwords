@@ -13,11 +13,11 @@ foundation_themes::include_theme!(app_theme);
 pub fn init(ui: &crate::AppWindow) {
     apply_system_theme(ui, SettingsApi::default().get_system_theme());
     let ui_weak = ui.as_weak();
-    let mut updates = slint_keyos_platform::subscribe_scalar::<
-        settings_permissions::SettingsPermissions,
-        _,
-    >(settings_permissions::settings::messages::SubscribeSystemTheme);
+    let updates = slint_keyos_platform::subscribe::<settings_permissions::SettingsPermissions, _>(
+        settings_permissions::settings::messages::SubscribeSystemTheme,
+    );
     slint_keyos_platform::spawn_local(async move {
+        let mut updates = updates.await;
         while let Some(system_theme) = updates.next().await {
             let Some(ui) = ui_weak.upgrade() else { break };
             apply_system_theme(&ui, system_theme);

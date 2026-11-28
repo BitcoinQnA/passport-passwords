@@ -113,6 +113,10 @@ export component MainPage inherits Rectangle {
         Callbacks.editing-archived = entry.archived;
         Callbacks.editing-error = "";
         Callbacks.editing-error-field = "";
+        Callbacks.editing-release-history = [];
+        Callbacks.editing-release-presses = 0;
+        Callbacks.editing-release-shown = 0;
+        Callbacks.editing-release-has-more = false;
         Navigate.edit({ version: version }, { });
     }
 
@@ -126,11 +130,29 @@ export component MainPage inherits Rectangle {
         Callbacks.editing-archived = entry.archived;
         Callbacks.editing-error = "";
         Callbacks.editing-error-field = "";
+        Callbacks.editing-release-history = entry.release-history;
+        Callbacks.editing-release-presses = 0;
+        Callbacks.opened-details();
         Navigate.details({ });
     }
 
     // ---- Empty state (no live AND no search query) ----------------------
     if !archive-view && Callbacks.live-count == 0 && Callbacks.search-text == "": ShieldPage {
+        AppHeader {
+            title: "Passwords";
+            side-padding: Size.sz8;
+
+            Rectangle { }
+
+            IconButton {
+                icon: "ellipsis";
+                size: Size.sz10;
+                icon-size: Size.sz8;
+                importance: Importance.normal;
+                clicked => { is-menu-open = !is-menu-open; }
+            }
+        }
+
         ContentSection {
             spacing: Size.sz6;
 

@@ -20,6 +20,9 @@ use zeroize::Zeroizing;
 use crate::{
     approval::{ApprovalAction, ApprovalDecision, ApprovalRequest, ArcApprover},
     origin::Origin,
+    record::{
+        sanitize_display_text, ReleaseEvent, MAX_HISTORY_NAME_BYTES, MAX_HISTORY_QID_BYTES,
+    },
     session::{Session, SessionError},
     store::{CredentialStore, ExistingCredential},
 };
@@ -39,6 +42,45 @@ pub const MAX_ORIGIN_BYTES: usize = 512;
 pub const MAX_USERNAME_BYTES: usize = 256;
 pub const MAX_LABEL_BYTES: usize = 128;
 pub const MAX_PASSWORD_BYTES: usize = 512;
+pub const MAX_CLIENT_NAME_BYTES: usize = MAX_HISTORY_NAME_BYTES;
+
+/// The paired peer that asked for a release, as the Prime knows it.
+/// Filled in by the QLv2 transport from the authenticated QID, never from
+/// the requester's payload.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ReleasePeer {
+    pub name: String,
+    pub qid: String,
+}
+
+fn surface_from_client_name(client_name: Option<&str>) -> String {
+    let name = client_name
+        .map(|s| sanitize_display_text(s, MAX_CLIENT_NAME_BYTES))
+        .unwrap_or_default();
+    if name.is_empty() {
+        "Unknown app".into()
+    } else {
+        name
+    }
+}
+
+fn peer_fields(peer: Option<&ReleasePeer>) -> (String, String) {
+    match peer {
+        Some(p) => {
+            let name = sanitize_display_text(&p.name, MAX_CLIENT_NAME_BYTES);
+            let qid = sanitize_display_text(&p.qid, MAX_HISTORY_QID_BYTES);
+            (
+                if name.is_empty() {
+                    "Unknown peer".into()
+                } else {
+                    name
+                },
+                qid,
+            )
+        }
+        None => ("Unknown peer".into(), String::new()),
+    }
+}
 
 #[derive(Debug, Clone)]
 pub struct EngineConfig {
@@ -103,8 +145,18 @@ impl<S: CredentialStore + 'static> Engine<S> {
     }
 
     pub async fn handle(&self, req: Request, now_ms: u64) -> Response {
+        self.handle_from(req, now_ms, None).await
+    }
+
+    /// Like [`handle`], with the Prime's view of the paired peer for a release.
+    pub async fn handle_from(
+        &self,
+        req: Request,
+        now_ms: u64,
+        peer: Option<ReleasePeer>,
+    ) -> Response {
         let id = req.id.clone();
-        match self.dispatch(req, now_ms).await {
+        match self.dispatch(req, now_ms, peer).await {
             Ok(body) => Response::Ok { id, result: body },
             Err((code, message)) => Response::Err {
                 id,
@@ -120,6 +172,7 @@ impl<S: CredentialStore + 'static> Engine<S> {
         &self,
         req: Request,
         now_ms: u64,
+        peer: Option<ReleasePeer>,
     ) -> Result<ResponseBody, (ErrorCode, String)> {
         match req.method {
             Method::Ping => Ok(ResponseBody::Pong { pong: true }),
@@ -168,9 +221,17 @@ impl<S: CredentialStore + 'static> Engine<S> {
             Method::ReleaseCredential(ReleaseCredentialParams {
                 origin,
                 username_hint,
+                client_name,
                 request_nonce,
             }) => self
-                .handle_release(origin, username_hint, request_nonce, now_ms)
+                .handle_release(
+                    origin,
+                    username_hint,
+                    client_name,
+                    request_nonce,
+                    now_ms,
+                    peer,
+                )
                 .await
                 .map(ResponseBody::ReleaseCredential),
 
@@ -195,8 +256,10 @@ impl<S: CredentialStore + 'static> Engine<S> {
         &self,
         origin: String,
         username_hint: Option<String>,
+        client_name: Option<String>,
         request_nonce: u64,
         now_ms: u64,
+        peer: Option<ReleasePeer>,
     ) -> Result<ReleaseCredentialResult, (ErrorCode, String)> {
         let canonical = canonicalize_origin(&origin)?;
         if let Some(h) = &username_hint {
@@ -256,6 +319,23 @@ impl<S: CredentialStore + 'static> Engine<S> {
         let password_sealed = s
             .seal(password_plain.as_bytes(), now_ms)
             .map_err(map_session_err)?;
+        drop(s);
+
+        let (peer_name, peer_qid) = peer_fields(peer.as_ref());
+        let event = ReleaseEvent {
+            surface: surface_from_client_name(client_name.as_deref()),
+            peer_name,
+            peer_qid,
+            released_at: now_ms / 1000,
+        };
+        {
+            let mut store = self.store.lock().unwrap();
+            let _ = store.record_release(&canonical, &username, event);
+        }
+        // Persist so the history survives a restart. If this fails, the
+        // release itself already happened (the user approved it), so still
+        // return the sealed password.
+        let _ = (self.on_write)();
 
         Ok(ReleaseCredentialResult {
             username,
@@ -587,7 +667,7 @@ mod tests {
 
     use super::*;
     use crate::{
-        approval::AutoApprove,
+        approval::{ApprovalDecision, AutoApprove},
         record::CredentialRecord,
         session::Session,
         store::{
@@ -662,6 +742,22 @@ mod tests {
             self.records.push(rec);
             Ok(())
         }
+
+        fn record_release(
+            &mut self,
+            origin: &str,
+            username: &str,
+            event: crate::record::ReleaseEvent,
+        ) -> Result<(), StoreError> {
+            if let Some(rec) = self
+                .records
+                .iter_mut()
+                .find(|r| !r.archived && r.origin == origin && r.username == username)
+            {
+                rec.push_release(event);
+            }
+            Ok(())
+        }
     }
 
     fn block_on<F: Future>(future: F) -> F::Output {
@@ -688,6 +784,10 @@ mod tests {
     }
 
     fn establish(engine: &Engine<TestStore>) -> Session {
+        establish_at(engine, 1_000)
+    }
+
+    fn establish_at(engine: &Engine<TestStore>, now_ms: u64) -> Session {
         let mut host = Session::new();
         let (host_pub, host_secret) = host.begin_host();
         let resp = block_on(engine.handle(
@@ -697,7 +797,7 @@ mod tests {
                     host_pubkey: hex::encode(host_pub),
                 }),
             },
-            1_000,
+            now_ms,
         ));
         let Response::Ok {
             result: ResponseBody::EstablishSession(result),
@@ -706,7 +806,7 @@ mod tests {
         else {
             panic!("handshake failed");
         };
-        host.complete_host(host_secret, &result.device_pubkey, SESSION_INFO, 1_000)
+        host.complete_host(host_secret, &result.device_pubkey, SESSION_INFO, now_ms)
             .unwrap();
         host
     }
@@ -815,6 +915,7 @@ mod tests {
                 method: Method::ReleaseCredential(ReleaseCredentialParams {
                     origin: "https://example.com".into(),
                     username_hint: None,
+                    client_name: None,
                     request_nonce: 1,
                 }),
             },
@@ -825,5 +926,303 @@ mod tests {
             panic!("release unexpectedly succeeded");
         };
         assert_eq!(error.code, ErrorCode::MultipleMatches as i32);
+    }
+
+    fn release_req(client_name: Option<&str>, nonce: u64) -> Request {
+        Request {
+            id: "release".into(),
+            method: Method::ReleaseCredential(ReleaseCredentialParams {
+                origin: "https://example.com".into(),
+                username_hint: Some("alice".into()),
+                client_name: client_name.map(|s| s.into()),
+                request_nonce: nonce,
+            }),
+        }
+    }
+
+    #[test]
+    fn successful_release_records_surface_peer_and_time() {
+        let store = Arc::new(Mutex::new(TestStore {
+            records: vec![CredentialRecord::new(
+                "https://example.com".into(),
+                "alice".into(),
+                "secret".into(),
+            )],
+        }));
+        let engine = Engine::new_in_memory(store.clone(), Arc::new(AutoApprove), EngineConfig::default());
+        let _host = establish_at(&engine, 1_795_803_300_000);
+        let peer = ReleasePeer {
+            name: "Grok Bot".into(),
+            qid: "c3a640a62bc3c1e56ea1542fe7b0cff4".into(),
+        };
+        let resp = block_on(engine.handle_from(
+            release_req(Some("Chrome extension"), 1),
+            1_795_803_300_000,
+            Some(peer),
+        ));
+        assert!(matches!(resp, Response::Ok { .. }), "{resp:?}");
+        let rec = store.lock().unwrap().records[0].clone();
+        assert_eq!(rec.release_history.len(), 1);
+        let ev = &rec.release_history[0];
+        assert_eq!(ev.surface, "Chrome extension");
+        assert_eq!(ev.peer_name, "Grok Bot");
+        assert_eq!(ev.peer_qid, "c3a640a62bc3c1e56ea1542fe7b0cff4");
+        assert_eq!(ev.released_at, 1_795_803_300);
+        assert_eq!(rec.last_used_at, 1_795_803_300);
+        assert_eq!(ev.row_text(0).date, "27 Nov");
+    }
+
+    #[test]
+    fn rejected_release_does_not_record_history() {
+        let store = Arc::new(Mutex::new(TestStore {
+            records: vec![CredentialRecord::new(
+                "https://example.com".into(),
+                "alice".into(),
+                "secret".into(),
+            )],
+        }));
+        let engine = Engine::new_in_memory(
+            store.clone(),
+            Arc::new(crate::approval::AutoReject),
+            EngineConfig::default(),
+        );
+        let _host = establish(&engine);
+        let resp = block_on(engine.handle_from(
+            release_req(Some("Chrome extension"), 1),
+            1_200,
+            Some(ReleasePeer {
+                name: "Grok Bot".into(),
+                qid: "abc".into(),
+            }),
+        ));
+        let Response::Err { error, .. } = resp else {
+            panic!("expected reject, got {resp:?}");
+        };
+        assert_eq!(error.code, ErrorCode::UserRejected as i32);
+        assert!(store.lock().unwrap().records[0].release_history.is_empty());
+    }
+
+    #[test]
+    fn timed_out_release_does_not_record_history() {
+        struct AutoTimeout;
+        #[async_trait::async_trait]
+        impl crate::approval::Approver for AutoTimeout {
+            async fn request(&self, _req: crate::approval::ApprovalRequest) -> ApprovalDecision {
+                ApprovalDecision::Timeout
+            }
+        }
+        let store = Arc::new(Mutex::new(TestStore {
+            records: vec![CredentialRecord::new(
+                "https://example.com".into(),
+                "alice".into(),
+                "secret".into(),
+            )],
+        }));
+        let engine = Engine::new_in_memory(store.clone(), Arc::new(AutoTimeout), EngineConfig::default());
+        let _host = establish(&engine);
+        let resp = block_on(engine.handle(release_req(Some("Chrome extension"), 1), 1_200));
+        let Response::Err { error, .. } = resp else {
+            panic!("expected timeout, got {resp:?}");
+        };
+        assert_eq!(error.code, ErrorCode::Timeout as i32);
+        assert!(store.lock().unwrap().records[0].release_history.is_empty());
+    }
+
+    #[test]
+    fn missing_client_name_records_unknown_app() {
+        let store = Arc::new(Mutex::new(TestStore {
+            records: vec![CredentialRecord::new(
+                "https://example.com".into(),
+                "alice".into(),
+                "secret".into(),
+            )],
+        }));
+        let engine = Engine::new_in_memory(store.clone(), Arc::new(AutoApprove), EngineConfig::default());
+        let _host = establish(&engine);
+        let resp = block_on(engine.handle(release_req(None, 1), 1_200));
+        assert!(matches!(resp, Response::Ok { .. }));
+        let ev = &store.lock().unwrap().records[0].release_history[0];
+        assert_eq!(ev.surface, "Unknown app");
+        assert_eq!(ev.peer_name, "Unknown peer");
+        assert!(ev.peer_qid.is_empty());
+    }
+
+    // ---- more release history behavior -----------------------------------
+
+    fn one_alice_store() -> Arc<Mutex<TestStore>> {
+        Arc::new(Mutex::new(TestStore {
+            records: vec![CredentialRecord::new(
+                "https://example.com".into(),
+                "alice".into(),
+                "secret".into(),
+            )],
+        }))
+    }
+
+    fn peer(name: &str) -> Option<ReleasePeer> {
+        Some(ReleasePeer { name: name.into(), qid: "c3a640a62bc3c1e56ea1542fe7b0cff4".into() })
+    }
+
+    #[test]
+    fn each_release_keeps_the_peer_name_the_prime_knew_at_that_moment() {
+        // The transport looks the name up per request, so a rename between two
+        // releases shows up as two different names in the history.
+        let store = one_alice_store();
+        let engine = Engine::new_in_memory(store.clone(), Arc::new(AutoApprove), EngineConfig::default());
+        let _host = establish(&engine);
+        for (nonce, name) in [(1, "Forge box"), (2, "Grok Bot")] {
+            let resp = block_on(engine.handle_from(
+                release_req(Some("Chrome extension"), nonce),
+                1_200,
+                peer(name),
+            ));
+            assert!(matches!(resp, Response::Ok { .. }), "{resp:?}");
+        }
+        let history = store.lock().unwrap().records[0].release_history.clone();
+        let names: Vec<&str> = history.iter().map(|e| e.peer_name.as_str()).collect();
+        assert_eq!(names, ["Forge box", "Grok Bot"]);
+        assert!(history.iter().all(|e| e.surface == "Chrome extension"));
+    }
+
+    #[test]
+    fn requester_text_is_cleaned_and_capped_before_it_is_stored() {
+        let store = one_alice_store();
+        let engine = Engine::new_in_memory(store.clone(), Arc::new(AutoApprove), EngineConfig::default());
+        let _host = establish(&engine);
+        let long = format!("\u{202E}Chrome\u{0007} extension{}", "x".repeat(1_000));
+        let resp = block_on(engine.handle_from(
+            release_req(Some(&long), 1),
+            1_200,
+            Some(ReleasePeer { name: "  Grok\nBot ".into(), qid: "q".repeat(500) }),
+        ));
+        assert!(matches!(resp, Response::Ok { .. }), "{resp:?}");
+        let ev = store.lock().unwrap().records[0].release_history[0].clone();
+        assert!(ev.surface.starts_with("Chrome extension"), "{:?}", ev.surface);
+        assert!(!ev.surface.contains('\u{202E}') && !ev.surface.contains('\u{0007}'));
+        assert_eq!(ev.surface.len(), MAX_CLIENT_NAME_BYTES);
+        assert_eq!(ev.peer_name, "Grok Bot");
+        assert_eq!(ev.peer_qid.len(), MAX_HISTORY_QID_BYTES);
+    }
+
+    #[test]
+    fn blank_names_become_unknown_app_and_unknown_peer() {
+        let store = one_alice_store();
+        let engine = Engine::new_in_memory(store.clone(), Arc::new(AutoApprove), EngineConfig::default());
+        let _host = establish(&engine);
+        let resp = block_on(engine.handle_from(
+            release_req(Some("   \u{200B}  "), 1),
+            1_200,
+            Some(ReleasePeer { name: " \t ".into(), qid: "abc".into() }),
+        ));
+        assert!(matches!(resp, Response::Ok { .. }), "{resp:?}");
+        let ev = store.lock().unwrap().records[0].release_history[0].clone();
+        assert_eq!(ev.surface, "Unknown app");
+        assert_eq!(ev.peer_name, "Unknown peer");
+        assert_eq!(ev.peer_qid, "abc");
+    }
+
+    #[test]
+    fn replayed_nonce_and_unknown_username_record_nothing() {
+        let store = one_alice_store();
+        let engine = Engine::new_in_memory(store.clone(), Arc::new(AutoApprove), EngineConfig::default());
+        let _host = establish(&engine);
+        assert!(matches!(
+            block_on(engine.handle_from(release_req(Some("Chrome extension"), 1), 1_200, peer("Grok Bot"))),
+            Response::Ok { .. }
+        ));
+        // Same nonce again: refused before approval, nothing new recorded.
+        assert!(matches!(
+            block_on(engine.handle_from(release_req(Some("Chrome extension"), 1), 1_300, peer("Grok Bot"))),
+            Response::Err { .. }
+        ));
+        // Username the vault does not hold.
+        let mut bad = release_req(Some("Chrome extension"), 2);
+        if let Method::ReleaseCredential(p) = &mut bad.method {
+            p.username_hint = Some("mallory".into());
+        }
+        assert!(matches!(block_on(engine.handle_from(bad, 1_400, peer("Grok Bot"))), Response::Err { .. }));
+        assert_eq!(store.lock().unwrap().records[0].release_history.len(), 1);
+    }
+
+    #[test]
+    fn a_failed_save_does_not_take_back_a_release_the_user_approved() {
+        let store = one_alice_store();
+        let saves = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let counter = saves.clone();
+        let engine = Engine::new(
+            store.clone(),
+            Arc::new(AutoApprove),
+            EngineConfig::default(),
+            Arc::new(move || {
+                counter.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                Err(PersistError)
+            }),
+        );
+        let _host = establish(&engine);
+        let resp = block_on(engine.handle_from(release_req(Some("Chrome extension"), 1), 1_200, peer("Grok Bot")));
+        assert!(matches!(resp, Response::Ok { .. }), "{resp:?}");
+        assert_eq!(saves.load(std::sync::atomic::Ordering::SeqCst), 1, "release must ask to persist once");
+        assert_eq!(store.lock().unwrap().records[0].release_history.len(), 1);
+    }
+
+    #[test]
+    fn rejected_and_timed_out_releases_never_ask_to_persist() {
+        struct Fixed(ApprovalDecision);
+        #[async_trait::async_trait]
+        impl crate::approval::Approver for Fixed {
+            async fn request(&self, _req: crate::approval::ApprovalRequest) -> ApprovalDecision {
+                self.0
+            }
+        }
+        for decision in [ApprovalDecision::Reject, ApprovalDecision::Timeout] {
+            let store = one_alice_store();
+            let saves = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+            let counter = saves.clone();
+            let engine = Engine::new(
+                store.clone(),
+                Arc::new(Fixed(decision)),
+                EngineConfig::default(),
+                Arc::new(move || {
+                    counter.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                    Ok(())
+                }),
+            );
+            let _host = establish(&engine);
+            let resp = block_on(engine.handle_from(release_req(Some("Chrome extension"), 1), 1_200, peer("Grok Bot")));
+            assert!(matches!(resp, Response::Err { .. }));
+            assert_eq!(saves.load(std::sync::atomic::Ordering::SeqCst), 0, "{decision:?}");
+            let rec = store.lock().unwrap().records[0].clone();
+            assert!(rec.release_history.is_empty(), "{decision:?}");
+            assert_eq!(rec.last_used_at, rec.created_at, "{decision:?}");
+        }
+    }
+
+    #[test]
+    fn the_password_never_appears_in_the_stored_history() {
+        let store = one_alice_store();
+        let engine = Engine::new_in_memory(store.clone(), Arc::new(AutoApprove), EngineConfig::default());
+        let _host = establish(&engine);
+        block_on(engine.handle_from(release_req(Some("Chrome extension"), 1), 1_200, peer("Grok Bot")));
+        let json = serde_json::to_string(&store.lock().unwrap().records[0].release_history).unwrap();
+        assert!(!json.contains("secret"));
+    }
+
+    #[test]
+    fn history_stays_at_fifty_through_the_engine() {
+        let store = one_alice_store();
+        let engine = Engine::new_in_memory(store.clone(), Arc::new(AutoApprove), EngineConfig::default());
+        let _host = establish(&engine);
+        for nonce in 1..=60u64 {
+            let resp = block_on(engine.handle_from(
+                release_req(Some("Chrome extension"), nonce),
+                1_000 + nonce,
+                peer("Grok Bot"),
+            ));
+            assert!(matches!(resp, Response::Ok { .. }), "nonce {nonce}: {resp:?}");
+        }
+        let rec = store.lock().unwrap().records[0].clone();
+        assert_eq!(rec.release_history.len(), crate::record::MAX_RELEASE_HISTORY);
+        // Entries are stamped in whole seconds from the request time.
+        assert!(rec.release_history.windows(2).all(|w| w[0].released_at <= w[1].released_at));
     }
 }

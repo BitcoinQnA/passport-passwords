@@ -54,17 +54,14 @@
     "SubmitFrame",
     "UpdateKeyboard",
     "HideKeyboard",
-    "ShowModal",
+    "Navigate",
+    "GetPendingNavRequest",
+    "FinishResponse",
+    "NavigationCancel",
 ]
 "os/settings" = [
     "GetSystemTheme",
     "SubscribeSystemTheme",
     "GetDebugTouch",
     "SubscribeDebugTouch",
-]
-[navigable]
-"os/gui-server" = [
-    "GetPendingNavRequest",
-    "FinishResponse",
-    "NavigationCancel",
 ]

@@ -8,8 +8,8 @@
 //!   - **WebSocket** on `cfg(not(keyos))` for the hosted-mode simulator. Lets the browser extension talk to a
 //!     host-side build of the app during development without a Prime.
 //!
-//!   - **Local vault** on SDK hardware builds. The public SDK does not expose the USB device service yet, so
-//!     the browser bridge stays disabled while local credential, import, backup, and restore flows remain usable.
+//!   - **QLv2** on hardware builds. The app answers its own QLv2 route (`vaults-bridge-ql`) from paired
+//!     peers the user let reach it; a host bridge carries the extension's WebSocket messages to it.
 //!
 //! The browser protocol remains transport-independent so a QLv2 adapter can
 //! replace the local hardware adapter when the public SDK exposes that route.
@@ -22,9 +22,9 @@ mod websocket;
 pub use websocket::serve;
 
 #[cfg(keyos)]
-mod local;
+mod qlv2;
 #[cfg(keyos)]
-pub use local::serve;
+pub use qlv2::start as start_qlv2;
 
 /// Shared, human-readable status line the UI banner mirrors.
 pub fn status() -> &'static Mutex<String> {
